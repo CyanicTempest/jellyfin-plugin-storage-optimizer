@@ -1,0 +1,175 @@
+// SPDX-License-Identifier: GPL-3.0-only
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.DataManager.Encoding;
+using Jellyfin.Plugin.DataManager.Models;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using Microsoft.Extensions.Logging;
+
+namespace Jellyfin.Plugin.DataManager.Services;
+
+/// <summary>
+/// Deletes single video files the user has confirmed, and removes them from the library.
+/// </summary>
+/// <remarks>
+/// Jellyfin's own delete removes a movie's whole folder, with every version in it, so this deletes only the chosen
+/// file, and only the files beside it that the user ticked, then tells Jellyfin the item is gone.
+/// </remarks>
+public sealed class MediaDeleter
+{
+    private readonly ILibraryManager _libraryManager;
+    private readonly ILibraryMonitor _libraryMonitor;
+    private readonly EncodeService _encodeService;
+    private readonly ILogger<MediaDeleter> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MediaDeleter"/> class.
+    /// </summary>
+    /// <param name="libraryManager">The library manager.</param>
+    /// <param name="libraryMonitor">The library monitor, told about each delete so it doesn't scan mid-way.</param>
+    /// <param name="encodeService">The re-encode queue, whose files can't be deleted while it works on them.</param>
+    /// <param name="logger">The logger.</param>
+    public MediaDeleter(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, EncodeService encodeService, ILogger<MediaDeleter> logger)
+    {
+        _libraryManager = libraryManager;
+        _libraryMonitor = libraryMonitor;
+        _encodeService = encodeService;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Works out what deleting some videos would do, for the user to confirm. Nothing is deleted.
+    /// </summary>
+    /// <param name="itemIds">The videos.</param>
+    /// <returns>Each video that still exists, with the files beside it and anything stopping its delete.</returns>
+    public IReadOnlyList<DeletePlanFile> Plan(IEnumerable<Guid> itemIds)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+
+        var ids = itemIds.Distinct().ToList();
+        var busy = _encodeService.BusyItems();
+        var plan = new List<DeletePlanFile>();
+        foreach (var id in ids)
+        {
+            if (_libraryManager.GetItemById<Video>(id) is not { } item || string.IsNullOrEmpty(item.Path) || !File.Exists(item.Path))
+            {
+                continue;
+            }
+
+            var sidecars = Sidecars.Find(item.Path).Select(p => new SidecarFile(p, Size(p))).ToList();
+            var othersKept = item.GetAllVersions().Count(v => !v.Id.Equals(item.Id) && !ids.Contains(v.Id));
+            plan.Add(new DeletePlanFile(
+                id.ToString("N", CultureInfo.InvariantCulture),
+                StorageScanner.Title(item),
+                item.Path,
+                Size(item.Path),
+                sidecars,
+                othersKept,
+                busy.GetValueOrDefault(id)));
+        }
+
+        return plan;
+    }
+
+    /// <summary>
+    /// Deletes videos the user confirmed, with the files beside them that they ticked.
+    /// </summary>
+    /// <param name="request">The videos and ticked files.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>What was deleted, and what couldn't be.</returns>
+    public async Task<DeleteResult> DeleteAsync(DeleteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var ticked = request.SidecarPaths.ToHashSet(StringComparer.Ordinal);
+        var result = new DeleteResult();
+
+        // Other versions go before the main one, so Jellyfin never makes one of them the main version only to lose it next.
+        var plan = Plan(request.ItemIds)
+            .Select(p => (Plan: p, Item: _libraryManager.GetItemById<Video>(Guid.Parse(p.ItemId))))
+            .OrderBy(p => p.Item?.PrimaryVersionId is null ? 1 : 0)
+            .ToList();
+        foreach (var (file, item) in plan)
+        {
+            // Once started, the batch runs to the end even if the page is closed, so every file deleted is also taken out of the library and the report.
+            if (item is null)
+            {
+                continue;
+            }
+
+            if (file.Blocked is not null)
+            {
+                result.Failed.Add(new DeleteFailure(file.Path, file.Blocked));
+                continue;
+            }
+
+            if (!TryDelete(file.Path, file.SizeBytes, result))
+            {
+                continue;
+            }
+
+            foreach (var sidecar in file.Sidecars.Where(s => ticked.Contains(s.Path)))
+            {
+                TryDelete(sidecar.Path, sidecar.SizeBytes, result);
+            }
+
+            // Jellyfin's own delete, told to leave the disk alone: it removes the item and makes any other version the main one.
+            try
+            {
+                _libraryManager.DeleteItem(item, new DeleteOptions { DeleteFileLocation = false }, true);
+            }
+#pragma warning disable CA1031 // The file is gone either way; the next library scan tidies up.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                _logger.LogWarning(ex, "Storage Optimizer deleted {Path} but couldn't remove it from the library", file.Path);
+            }
+
+            result.DeletedItemIds.Add(file.ItemId);
+        }
+
+        await StorageScanner.RemoveFilesAsync([.. result.DeletedItemIds], CancellationToken.None).ConfigureAwait(false);
+        return result;
+    }
+
+    private bool TryDelete(string path, long size, DeleteResult result)
+    {
+        _libraryMonitor.ReportFileSystemChangeBeginning(path);
+        try
+        {
+            File.Delete(path);
+            _logger.LogInformation("Storage Optimizer deleted {Path}, on request", path);
+            result.DeletedFiles++;
+            result.FreedBytes += size;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Storage Optimizer couldn't delete {Path}", path);
+            result.Failed.Add(new DeleteFailure(path, ex.Message));
+            return false;
+        }
+        finally
+        {
+            _libraryMonitor.ReportFileSystemChangeComplete(path, false);
+        }
+    }
+
+    private static long Size(string path)
+    {
+        try
+        {
+            return new FileInfo(path).Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+}

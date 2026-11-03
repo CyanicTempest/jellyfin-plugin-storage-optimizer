@@ -1,0 +1,9 @@
+bin/
+obj/
+build-output/
+.DS_Store
+
+# Coding-assistant working files
+CLAUDE.md
+AGENTS.md
+.claude/

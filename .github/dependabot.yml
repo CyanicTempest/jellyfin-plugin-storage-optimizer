@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Weekly pull requests to keep the pinned build actions and NuGet packages current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly

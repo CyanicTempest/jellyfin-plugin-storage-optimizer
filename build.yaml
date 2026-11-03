@@ -1,0 +1,20 @@
+---
+name: "Storage Optimizer"
+guid: "058486e8-6ec1-4313-b336-a2f160d50fac"
+version: "0.1.0.0"
+targetAbi: "12.3.0.0"
+framework: "net10.0"
+overview: "See where your library storage goes and re-encode to save space"
+description: >
+  Scans every library and shows which folders and files use the most space.
+  Re-encodes files to HEVC or AV1 with quality checks, remuxes out audio and
+  subtitle tracks you don't need, converts audio, handles HDR, and finds
+  duplicates, unwatched media and leftover files.
+category: "General"
+owner: "CyanicTempest"
+artifacts:
+- "Jellyfin.Plugin.DataManager.dll"
+changelog: >
+  First release. Shows where library storage goes, re-encodes to HEVC or AV1
+  with quality checks, remuxes out audio and subtitle tracks, converts audio,
+  handles HDR, and finds duplicates, unwatched media and leftover files.

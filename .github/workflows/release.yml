@@ -1,0 +1,119 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Builds the plugin and publishes it to the `dist` branch as a Jellyfin plugin repository:
+#   dist/manifest.json                 the catalog Jellyfin reads
+#   dist/datamanager_<version>.zip     the plugin itself
+# It also makes a GitHub release v<version> with the zip attached.
+# Older versions are removed so only the newest KEEP_VERSIONS remain.
+# Run it by pushing a tag like v0.1.0.0, or from the Actions tab (it then uses the version in Directory.Build.props).
+name: Release plugin
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # How many versions stay in the manifest, on dist and as GitHub releases.
+  KEEP_VERSIONS: "3"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Only this job can write: it pushes the dist branch and makes the release.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"
+          else
+            v=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must look like 1.2.3.4, got '$v'"; exit 1; }
+          meta=$(grep -oP '(?<=^version: ")[^"]+' build.yaml)
+          [[ "$v" == "$meta" ]] || { echo "build.yaml says version $meta but this release is $v; update build.yaml and its changelog first"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: >
+          dotnet publish Jellyfin.Plugin.DataManager -c Release -o build-output
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:AssemblyVersion=${{ steps.version.outputs.version }}
+          -p:FileVersion=${{ steps.version.outputs.version }}
+
+      - name: Zip
+        run: |
+          mkdir -p out
+          zip -j "out/datamanager_${{ steps.version.outputs.version }}.zip" build-output/Jellyfin.Plugin.DataManager.dll LICENSE THIRD-PARTY-NOTICES.md
+
+      - name: Publish to the dist branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pip install --quiet pyyaml==6.0.3
+          base="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/dist"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth 1 origin dist; then
+            git worktree add dist origin/dist
+            git -C dist checkout -B dist
+          else
+            git worktree add --orphan -b dist dist
+          fi
+          cp "out/datamanager_${VERSION}.zip" dist/
+          python3 scripts/make_manifest.py build.yaml "dist/datamanager_${VERSION}.zip" "$VERSION" \
+            "${base}/datamanager_${VERSION}.zip" dist/manifest.json "$KEEP_VERSIONS"
+          cd dist
+          # Drop zips the manifest no longer lists.
+          for f in datamanager_*.zip; do
+            grep -q "/${f}\"" manifest.json || git rm -q --ignore-unmatch "$f" || rm -f "$f"
+          done
+          git add -A
+          # Keep dist as one commit so old zips don't stay in its history.
+          tree=$(git write-tree)
+          commit=$(git commit-tree "$tree" -m "Publish Storage Optimizer ${VERSION}")
+          git reset -q "$commit"
+          git push --force origin HEAD:dist
+
+      - name: Delete older GitHub releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          kept=$(python3 -c 'import json; print(" ".join("v" + v["version"] for p in json.load(open("dist/manifest.json")) for v in p["versions"]))')
+          kept="$kept v${VERSION}"
+          gh release list --limit 200 --json tagName -q '.[].tagName' | while read -r tag; do
+            [[ " $kept " == *" $tag "* ]] && continue
+            echo "Deleting release $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          done
+
+      - name: Make the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          zip="out/datamanager_${VERSION}.zip"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" "$zip" --clobber
+          else
+            notes=$(python3 -c "import yaml; print(yaml.safe_load(open('build.yaml'))['changelog'].strip())")
+            notes="${notes}"$'\n\n'"SHA-256 of $(basename "$zip"): $(sha256sum "$zip" | cut -d' ' -f1)"
+            gh release create "v${VERSION}" "$zip" --target "$GITHUB_SHA" \
+              --title "Storage Optimizer ${VERSION}" --notes "$notes"
+          fi

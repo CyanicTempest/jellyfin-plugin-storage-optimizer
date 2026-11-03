@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Jellyfin.Plugin.DataManager</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
+    <!-- Windows freezes an encode with a call into ntdll, which the source-generated P/Invoke compiles to unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AnalysisMode>AllEnabledByDefault</AnalysisMode>
+    <!-- CA1724: Jellyfin requires the class to be named Plugin. CA1848/CA1873: plain log calls are fine at this volume, as in Jellyfin itself.
+         CA3003: every file path comes from a Jellyfin library item looked up by id; the only paths a request carries are ticked
+         sidecar paths, which are matched against the ones the server worked out itself. -->
+    <NoWarn>$(NoWarn);CA1724;CA1848;CA1873;CA3003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="12.3.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <PackageReference Include="Jellyfin.Model" Version="12.3.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The licence and third-party notices travel inside the DLL, so every copy carries them. -->
+    <EmbeddedResource Include="..\LICENSE" LogicalName="LICENSE" />
+    <EmbeddedResource Include="..\THIRD-PARTY-NOTICES.md" LogicalName="THIRD-PARTY-NOTICES.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Configuration\configPage.html" />
+    <EmbeddedResource Include="Configuration\configPage.html" />
+    <None Remove="Web\dashboard.html" />
+    <EmbeddedResource Include="Web\dashboard.html" />
+  </ItemGroup>
+
+</Project>
