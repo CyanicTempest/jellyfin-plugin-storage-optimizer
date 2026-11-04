@@ -19,4 +19,5 @@ changelog: >
   beside your film, whether the film decoded on the GPU, and speeds in times
   real time. New Keep frames on the GPU setting for NVIDIA cards, off until you
   turn it on. Check detail stops when you close the re-encode window and runs
-  faster. New Clear queue button for the encoding list.
+  faster. New Clear queue button for the encoding list. The Clean up tiles now
+  have titles and say what each one does.

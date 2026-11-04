@@ -188,6 +188,8 @@
             #DataManagerDashboardPage .dm-tile-i .dm-ic { width: 20px; height: 20px; }
             #DataManagerDashboardPage .dm-tile.dm-needs .dm-tile-i { background: var(--dm-warning-chip); color: var(--dm-warning); }
             #DataManagerDashboardPage .dm-tile-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+            #DataManagerDashboardPage .dm-tile-t { font-size: 14px; font-weight: 600; }
+            #DataManagerDashboardPage .dm-tile-n:empty { display: none; }
             #DataManagerDashboardPage .dm-tile-n { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-tile-l { font-size: 13px; color: var(--dm-ink-2); }
             #DataManagerDashboardPage .dm-tile-l.dm-attention { color: var(--dm-warning); }
@@ -673,17 +675,17 @@
                     <div class="dm-tiles">
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
-                            <div class="dm-tile-b"><span id="dmSmallerNumber" class="dm-tile-n">-</span><span id="dmSmallerCard" class="dm-tile-l">Re-encodes you kept beside the original show here once they're smaller.</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Smaller files</span><span id="dmSmallerNumber" class="dm-tile-n"></span><span id="dmSmallerCard" class="dm-tile-l">Shows re-encodes you kept beside their originals once they're smaller, to accept in one go.</span></div>
                             <button type="button" id="dmSmallerOpen" class="dm-button" disabled>Review</button>
                         </div>
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></div>
-                            <div class="dm-tile-b"><span id="dmDupNumber" class="dm-tile-n">…</span><span id="dmDupCard" class="dm-tile-l">Scan your libraries to look for duplicates.</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Duplicates</span><span id="dmDupNumber" class="dm-tile-n"></span><span id="dmDupCard" class="dm-tile-l">Scan your libraries to find movies and episodes that are in them more than once.</span></div>
                             <button type="button" id="dmDupOpen" class="dm-button">Review</button>
                         </div>
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m9.5 10.5 5 5"/><path d="m14.5 10.5-5 5"/></svg></div>
-                            <div class="dm-tile-b"><span id="dmLeftoverNumber" class="dm-tile-n">…</span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Leftovers</span><span id="dmLeftoverNumber" class="dm-tile-n"></span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span></div>
                             <button type="button" id="dmLeftoverOpen" class="dm-button">Review</button>
                         </div>
                     </div>
@@ -3645,12 +3647,13 @@
                     var number = $('#dmDupNumber');
                     var tile = label.closest('.dm-tile');
                     tile.classList.remove('dm-needs');
-                    number.textContent = '-';
-                    if (!d) { label.textContent = summary && summary.GeneratedAt ? 'Duplicates · Loading…' : 'Duplicates · Scan your libraries to look for them'; return; }
-                    if (d.NeedsScan) { label.textContent = 'Duplicates · Scan again to look for them'; return; }
-                    if (!d.Groups.length) { number.textContent = 'None'; label.textContent = 'Duplicates · No movie or episode is in your libraries more than once'; return; }
+                    number.textContent = '';
+                    var purpose = 'Finds movies and episodes that are in your libraries more than once.';
+                    if (!d) { label.textContent = summary && summary.GeneratedAt ? 'Loading…' : 'Scan your libraries first. ' + purpose; return; }
+                    if (d.NeedsScan) { label.textContent = 'Scan again to look. ' + purpose; return; }
+                    if (!d.Groups.length) { number.textContent = 'None'; label.textContent = purpose; return; }
                     number.textContent = formatBytes(d.ReclaimableBytes);
-                    label.textContent = 'Duplicates · ' + plural(d.Groups.length, 'title') + ' ' + (d.Groups.length === 1 ? 'is' : 'are') + ' in your libraries more than once';
+                    label.textContent = plural(d.Groups.length, 'title') + ' ' + (d.Groups.length === 1 ? 'is' : 'are') + ' in your libraries more than once, which could free this much';
                     tile.classList.add('dm-needs');
                 }
 
@@ -3798,7 +3801,8 @@
                     var number = $('#dmLeftoverNumber');
                     var tile = label.closest('.dm-tile');
                     var text;
-                    number.textContent = '-';
+                    number.textContent = '';
+                    var purpose = 'Finds metadata and trickplay images left behind by deleted videos, and sample clips';
                     if (progress != null) {
                         number.textContent = Math.round(progress) + '%';
                         text = 'Checking for leftovers…';
@@ -3806,16 +3810,16 @@
                         number.textContent = formatBytes(items.reduce(function (sum, l) { return sum + l.SizeBytes; }, 0));
                         text = plural(items.length, 'item') + ' waiting for you to decide';
                     } else if (!report.GeneratedAt) {
-                        text = 'Finds what Jellyfin\'s own clean-up misses';
+                        text = 'Not checked yet. ' + purpose + '.';
                     } else {
                         number.textContent = 'None';
-                        text = 'Nothing waiting' + (report.CleanedCount ? '. The last check cleaned up ' + formatBytes(report.CleanedBytes) + ' by itself' : '');
+                        text = (report.CleanedCount ? 'The last check cleaned up ' + formatBytes(report.CleanedBytes) + ' by itself. ' : '') + purpose;
                     }
                     var extras = extraFiles();
                     if (extras.length && progress == null) {
                         text += '. Your libraries also hold ' + plural(extras.length, 'extra') + ' using ' + formatBytes(extras.reduce(function (sum, f) { return sum + f.SizeBytes; }, 0));
                     }
-                    label.textContent = 'Leftovers · ' + text;
+                    label.textContent = text;
                     tile.classList.toggle('dm-needs', !!(items.length || report.HeldBack) && progress == null);
                 }
 
@@ -3891,8 +3895,8 @@
                 function renderSmallerCard() {
                     var pairs = smallerPairs();
                     var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
-                    $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(freed) : '-';
-                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 'smaller file') + ' ready to accept' : 'Re-encodes you kept beside the original show here once they\'re smaller.';
+                    $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(freed) : 'None';
+                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 'smaller file') + ' ready to accept, which frees this much' : 'Shows re-encodes you kept beside their originals once they\'re smaller, to accept in one go.';
                     $('#dmSmallerOpen').disabled = !pairs.length;
                     if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) {
                         if (pairs.length) { renderSmallerList(); } else { closeSmaller(); }
