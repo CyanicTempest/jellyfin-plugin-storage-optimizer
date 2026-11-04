@@ -143,7 +143,7 @@ public sealed class EncodeService : IDisposable
             Option(
                 TargetCodec.Av1,
                 "AV1",
-                "Smallest files. Newer devices only.",
+                "Newer devices only.",
                 "Plays directly on Google TV and Android TV devices from about 2021, iPhone 15 Pro, M3 Macs and newer, and recent smart TVs. Older devices need Jellyfin to transcode. Encoding is very slow without a recent GPU."),
             Option(
                 TargetCodec.H264,

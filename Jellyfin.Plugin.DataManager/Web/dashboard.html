@@ -2635,8 +2635,14 @@
                 }
 
                 // Hours and minutes, short enough for a row.
-                function shortDuration(seconds) {
+                // Every time on the page rounds the same way: to the minute under 10 minutes, then to the nearest 5.
+                function roundedMinutes(seconds) {
                     var minutes = Math.max(Math.round(seconds / 60), 1);
+                    return minutes < 10 ? minutes : Math.round(minutes / 5) * 5;
+                }
+
+                function shortDuration(seconds) {
+                    var minutes = roundedMinutes(seconds);
                     if (minutes < 60) { return minutes + ' min'; }
                     var hours = Math.floor(minutes / 60);
                     if (hours >= 24) { return Math.floor(hours / 24) + ' d ' + (hours % 24) + ' h'; }
@@ -2736,7 +2742,7 @@
                     ((time && time.Efforts) || []).forEach(function (e) { times[e.Effort] = e; });
                     $('#dmEffortChoices').innerHTML = efforts.filter(function (e) { return available.indexOf(e.value) >= 0; }).map(function (e) {
                         var t = times[e.value];
-                        var value = t && t.Seconds != null ? shortDuration(t.Seconds) : '…';
+                        var value = t && t.Seconds != null ? shortDuration(t.Seconds) : 'Timing…';
                         return segLabel('dmEffort', e.value, e.value === body.Effort, false, e.name, value, e.note, !t || t.Measured);
                     }).join('');
                     var scaled = Object.keys(times).some(function (k) { return times[k].Seconds != null && !times[k].Measured; });
@@ -2770,7 +2776,7 @@
                     return '<label class="dm-level"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '><input type="radio" name="dmQuality" value="' + level.value + '"' + (checked ? ' checked' : '') + ' />'
                         + '<span>' + escapeHtml(level.name) + (level.note ? '<span class="dm-level-note">' + escapeHtml(level.note) + '</span>' : '') + '</span>'
                         + '<span class="dm-bar" aria-hidden="true"><i style="width:' + share.toFixed(0) + '%"></i></span>'
-                        + '<span class="dm-level-value' + (measured ? '' : ' dm-guess') + '">' + escapeHtml(value) + '</span></label>';
+                        + '<span class="dm-level-value' + (measured ? '' : ' dm-guess') + '"' + (measured ? '' : ' title="A rough guess until these settings are test-encoded"') + '>' + (measured || value === '…' ? '' : '~') + escapeHtml(value) + '</span></label>';
                 }
 
                 // A button in a segmented control: a radio under the label, with a second line such as a time or size.
@@ -3082,7 +3088,7 @@
                         warnings.push(time && time.Seconds != null
                             ? 'This server encodes on the CPU, so it\'s slow: these files should take ' + formatDuration(time.Seconds) + (basis ? ' (' + basis + ')' : '') + '.'
                             : !hasTime()
-                                ? 'This server encodes on the CPU, so it\'s slow. Timing it and measuring the size with short test encodes of these settings, which takes from half a minute to a few minutes at the slowest speeds, once.'
+                                ? 'This server encodes on the CPU, so it\'s slow. Short test encodes to time it and measure the size take from half a minute to a few minutes, once.'
                                 : 'This server encodes on the CPU, so expect a long wait: hours for a 4K film.');
                     }
                     $('#dmDialogWarning').innerHTML = warnings.map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('');
@@ -5209,7 +5215,7 @@
                 }
 
                 function formatDuration(seconds) {
-                    var minutes = Math.max(Math.ceil(seconds / 60), 1);
+                    var minutes = roundedMinutes(seconds);
                     if (minutes < 60) { return 'about ' + minutes + ' min'; }
                     var hours = Math.floor(minutes / 60);
                     if (hours >= 48) { return 'about ' + Math.round(hours / 24) + ' days'; }
