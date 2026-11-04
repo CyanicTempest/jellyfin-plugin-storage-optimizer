@@ -20,6 +20,11 @@ public class DuplicateReport
 
     /// <summary>Gets the titles with more than one copy, the most space to free first.</summary>
     public IList<DuplicateGroup> Groups { get; init; } = [];
+
+    /// <summary>
+    /// Gets the titles left out because they're a kept re-encode and its original, which Smaller files deals with.
+    /// </summary>
+    public IList<string> CoveredBySmallerFiles { get; init; } = [];
 }
 
 /// <summary>

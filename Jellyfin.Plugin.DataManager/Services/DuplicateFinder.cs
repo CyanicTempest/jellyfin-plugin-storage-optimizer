@@ -34,8 +34,9 @@ public static class DuplicateFinder
     /// Finds the titles with more than one copy.
     /// </summary>
     /// <param name="report">The last scan, or null if none has run.</param>
+    /// <param name="keptPaths">The re-encodes the user chose to keep. With this, an original and a re-encode still waiting to be accepted are left to Smaller files.</param>
     /// <returns>The titles, the most space to free first.</returns>
-    public static DuplicateReport Find(StorageReport? report)
+    public static DuplicateReport Find(StorageReport? report, IReadOnlySet<string>? keptPaths = null)
     {
         var result = new DuplicateReport();
         if (report is null)
@@ -115,6 +116,15 @@ public static class DuplicateFinder
         {
             var labels = matchedOn.TryGetValue(copies.Key, out var found) ? found.ToList() : [];
             var group = Build(copies.Select(i => files[i]).ToList(), labels, reEncodes);
+
+            // Smaller files offers an original and its kept re-encode, so counting them here too would count them twice.
+            var bestPath = group.Copies[0].Path;
+            if (keptPaths is not null && group.Copies.Count == 2 && reEncodes.Contains(group.BestItemId) && !keptPaths.Contains(bestPath))
+            {
+                result.CoveredBySmallerFiles.Add(group.Title);
+                continue;
+            }
+
             result.Groups.Add(group);
         }
 

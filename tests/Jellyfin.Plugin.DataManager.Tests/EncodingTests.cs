@@ -193,6 +193,22 @@ public sealed class EncodingTests
     }
 
     [Fact]
+    public void DuplicateFinder_leaves_a_pending_re_encode_to_smaller_files()
+    {
+        var report = new StorageReport();
+        report.Files.Add(new MediaFileInfo { ItemId = "a", Path = "/m/Film.mkv", Kind = "Movie", Name = "Film", Width = 1920, Height = 1080, VideoCodec = "h264", Bitrate = 8_000_000, SizeBytes = 300, OtherVersionIds = ["b"] });
+        report.Files.Add(new MediaFileInfo { ItemId = "b", Path = "/m/Film - HEVC.mkv", Kind = "Movie", Name = "Film", Width = 1920, Height = 1080, VideoCodec = "hevc", Bitrate = 2_000_000, SizeBytes = 100, OtherVersionIds = ["a"] });
+
+        var pending = DuplicateFinder.Find(report, new HashSet<string>());
+        Assert.Empty(pending.Groups);
+        Assert.Equal(0, pending.ReclaimableBytes);
+        Assert.Equal("Film", Assert.Single(pending.CoveredBySmallerFiles));
+
+        // Once the user has chosen to keep both, Smaller files stops asking, so it's an ordinary duplicate again.
+        Assert.Single(DuplicateFinder.Find(report, new HashSet<string> { "/m/Film - HEVC.mkv" }).Groups);
+    }
+
+    [Fact]
     public void Medians_gives_the_middle_run_of_each_number_at_once()
     {
         var totals = new List<IReadOnlyList<double>> { new[] { 600.0, 640, 100 }, new[] { 1100.0, 1000 }, Array.Empty<double>() };

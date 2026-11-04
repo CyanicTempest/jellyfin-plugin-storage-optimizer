@@ -1759,7 +1759,7 @@ public sealed class EncodeService : IDisposable
         var savedText = saved > 0 ? "saved " + FormatBytes(saved) : "saved nothing";
         if (job.Mode == OutputMode.KeepBoth)
         {
-            Finish(job, EncodeJobState.Completed, "Added as a new version" + (saved > 0 ? ". Deleting the original later would save " + FormatBytes(saved) + "." : ".") + (job.TracksNote is null ? string.Empty : " " + job.TracksNote));
+            Finish(job, EncodeJobState.Completed, "Added as a new version" + (saved > 0 ? ". Accepting it frees " + FormatBytes(job.SourceBytes) + " now (" + FormatBytes(saved) + " smaller overall)." : ".") + (job.TracksNote is null ? string.Empty : " " + job.TracksNote));
         }
         else
         {

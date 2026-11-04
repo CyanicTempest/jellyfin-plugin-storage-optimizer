@@ -465,6 +465,8 @@
             #DataManagerDashboardPage .dm-grp-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: var(--dm-deep); border-bottom: 1px solid var(--dm-line); flex-wrap: wrap; }
             #DataManagerDashboardPage .dm-grp-h b { font-size: 14px; font-weight: 600; }
             #DataManagerDashboardPage .dm-grp-h .dm-hint { margin-top: 2px; }
+            #DataManagerDashboardPage .dm-grp.dm-grp-covered { border-style: dashed; }
+            #DataManagerDashboardPage .dm-grp.dm-grp-covered .dm-grp-h { border-bottom: 0; background: none; }
             #DataManagerDashboardPage .dm-cr { display: grid; grid-template-columns: 24px minmax(0, 1fr) 88px auto; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--dm-soft); }
             #DataManagerDashboardPage .dm-grp-h + .dm-cr { border-top: 0; }
             #DataManagerDashboardPage .dm-cr.dm-selected { background: var(--dm-tint); }
@@ -1015,11 +1017,12 @@
                                 <button type="button" id="dmSmallerNone" class="dm-small-button">Deselect all</button>
                             </div>
                             <div id="dmSmallerList"></div>
+                            <p class="dm-hint">Keep both leaves the original and the new file as they are, for the ticked files only. Nothing is deleted, and you won't be asked about those again.</p>
                         </div>
                         <div class="dm-df">
                             <span class="dm-result-text" id="dmSmallerFoot"></span>
                             <div class="dm-df-r">
-                                <button type="button" id="dmSmallerKeep" class="dm-button" title="Keep both files, and don't ask about these again">Keep both</button>
+                                <button type="button" id="dmSmallerKeep" class="dm-button" title="Keep both files for the ticked ones, and don't ask about those again">Keep both</button>
                                 <button type="button" id="dmSmallerAccept" class="dm-button dm-primary" disabled>Accept smaller files</button>
                             </div>
                         </div>
@@ -3770,9 +3773,14 @@
                         updateDupSelection();
                         return;
                     }
+                    var coveredCards = (d.CoveredBySmallerFiles || []).map(function (title) {
+                        return '<div class="dm-grp dm-grp-covered"><div class="dm-grp-h"><div><b>' + escapeHtml(title) + '</b> <span class="dm-chip dm-chip-acc">Covered by Smaller files</span>'
+                            + '<div class="dm-hint">It has an original and a kept re-encode, so it isn\'t in this total.</div></div>'
+                            + '<button type="button" class="dm-small-button dm-to-smaller">Open Smaller files</button></div></div>';
+                    }).join('');
                     if (!groups.length) {
                         $('#dmDupLine').textContent = '';
-                        $('#dmDuplicates').innerHTML = '<p class="dm-empty-list">No movie or episode is in your libraries more than once.</p>';
+                        $('#dmDuplicates').innerHTML = (coveredCards ? '' : '<p class="dm-empty-list">No movie or episode is in your libraries more than once.</p>') + coveredCards;
                         updateDupSelection();
                         return;
                     }
@@ -3793,7 +3801,7 @@
                             + '<div class="dm-note dm-dup-warn dm-hidden" data-group="' + index + '">' + icon('alert') + '<span>Every copy is ticked. This title would be gone from your library.</span></div></div>';
                     });
                     var more = groups.length - shown.length;
-                    $('#dmDuplicates').innerHTML = cards.join('')
+                    $('#dmDuplicates').innerHTML = cards.join('') + coveredCards
                         + (more > 0 ? '<p><button type="button" id="dmDupMore" class="dm-button">Show ' + plural(more, 'more title') + '</button></p>' : '');
                     updateDupSelection();
                 }
@@ -3806,13 +3814,19 @@
                     var tile = label.closest('.dm-tile');
                     tile.classList.remove('dm-needs');
                     number.textContent = '';
-                    $('#dmDupOpen').disabled = !d || !!d.NeedsScan || !d.Groups.length;
+                    var covered = d ? d.CoveredBySmallerFiles || [] : [];
+                    $('#dmDupOpen').disabled = !d || !!d.NeedsScan || !(d.Groups.length || covered.length);
                     var purpose = 'Finds movies and episodes that are in your libraries more than once.';
                     if (!d) { label.textContent = summary && summary.GeneratedAt ? 'Loading…' : 'Scan your libraries first. ' + purpose; return; }
                     if (d.NeedsScan) { label.textContent = 'Scan again to look. ' + purpose; return; }
-                    if (!d.Groups.length) { number.textContent = 'None'; label.textContent = purpose; return; }
+                    var coveredLine = covered.length ? ' Kept re-encodes are under Smaller files.' : '';
+                    if (!d.Groups.length) {
+                        number.textContent = 'None';
+                        label.textContent = coveredLine ? coveredLine.trim() : purpose;
+                        return;
+                    }
                     number.textContent = formatBytes(d.ReclaimableBytes);
-                    label.textContent = plural(d.Groups.length, 'title') + ' ' + (d.Groups.length === 1 ? 'is' : 'are') + ' in your libraries more than once, which could free this much';
+                    label.textContent = plural(d.Groups.length, 'title') + ' ' + (d.Groups.length === 1 ? 'is' : 'are') + ' in your libraries more than once, which could free this much.' + coveredLine;
                     tile.classList.add('dm-needs');
                 }
 
@@ -4051,11 +4065,17 @@
                     });
                 }
 
+                // Accepting frees each original's whole size today. The smaller overall figure is against before the encode.
+                function freesLine(pairs) {
+                    var originals = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0);
+                    var smaller = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
+                    return 'Frees ' + formatBytes(originals) + ' now (' + formatBytes(smaller) + ' smaller overall).';
+                }
+
                 function renderSmallerCard() {
                     var pairs = smallerPairs();
-                    var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
-                    $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(freed) : 'None';
-                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 'smaller file') + ' ready to accept, which frees this much' : 'Shows re-encodes you kept beside their originals once they\'re smaller, to accept in one go.';
+                    $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0)) : 'None';
+                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 're-encode') + ' ready. ' + freesLine(pairs) : 'Shows re-encodes you kept beside their originals once they\'re smaller, to accept in one go.';
                     $('#dmSmallerOpen').disabled = !pairs.length;
                     if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) {
                         if (pairs.length) { renderSmallerList(); } else { closeSmaller(); }
@@ -4112,11 +4132,11 @@
 
                 function updateSmallerFoot() {
                     var pairs = pickedPairs();
-                    var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
                     $('#dmSmallerChips').innerHTML = '<span class="dm-chip">' + plural(smallerPairs().length, 'file') + '</span>';
-                    $('#dmSmallerFoot').textContent = pairs.length ? plural(pairs.length, 'file') + ' selected, frees ' + formatBytes(freed) : 'Nothing selected';
+                    $('#dmSmallerFoot').textContent = pairs.length ? plural(pairs.length, 'file') + ' selected. ' + freesLine(pairs) : 'Nothing selected';
                     $('#dmSmallerAccept').disabled = !pairs.length;
                     $('#dmSmallerKeep').disabled = !pairs.length;
+                    $('#dmSmallerKeep').textContent = pairs.length ? 'Keep both for ' + pairs.length + ' selected' : 'Keep both';
                     $('#dmSmallerAccept').textContent = pairs.length ? 'Accept ' + plural(pairs.length, 'smaller file') : 'Accept smaller files';
                 }
 
@@ -4125,14 +4145,12 @@
                     var pairs = pickedPairs();
                     if (!pairs.length) { return; }
                     var bytes = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0);
-                    var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
                     openConfirm({
                         title: 'Delete ' + plural(pairs.length, 'original') + '?',
-                        body: '<p class="dm-confirm-note">' + (pairs.length === 1 ? 'This original is' : 'These originals are') + ' deleted from the disk and ' + formatBytes(bytes) + ' goes with ' + (pairs.length === 1 ? 'it' : 'them')
-                            + '. The smaller files stay, which leaves ' + formatBytes(freed) + ' more free. This can\'t be undone.</p>'
+                        body: '<p class="dm-confirm-note">' + (pairs.length === 1 ? 'This original is' : 'These originals are') + ' deleted from the disk. The smaller files stay. ' + freesLine(pairs) + ' This can\'t be undone.</p>'
                             + fileList(pairs.map(function (p) { return { name: titleOf(p.original), detail: p.original.Path, size: p.original.SizeBytes }; }))
                             + '<p class="dm-confirm-note dm-muted">Subtitles, artwork and .nfo files beside an original move to the new file\'s name.</p>',
-                        ok: 'Delete ' + plural(pairs.length, 'original') + ', frees ' + formatBytes(freed),
+                        ok: 'Delete ' + plural(pairs.length, 'original') + ', frees ' + formatBytes(bytes),
                         action: function () {
                             return postJson('DataManager/Encode/Smaller/Accept', { ItemIds: pairs.map(function (p) { return dashedGuid(p.output.ItemId); }) }).then(function (result) {
                                 showMediaNotice(deleteSummary(result, 'original'), result.Failed && result.Failed.length && !result.DeletedFiles);
@@ -5626,6 +5644,11 @@
                 $('#dmDeleteButton').addEventListener('click', confirmDelete);
                 $('#dmDupDelete').addEventListener('click', confirmDupDelete);
                 $('#dmDupOpen').addEventListener('click', openDupDialog);
+                $('#dmDuplicates').addEventListener('click', function (e) {
+                    if (!e.target.closest('.dm-to-smaller')) { return; }
+                    closeDupDialog();
+                    if (smallerPairs().length) { openSmaller(); }
+                });
                 $('#dmEmptyScan').addEventListener('click', function () { $('#dmScanButton').click(); });
                 $('#dmDupClose').addEventListener('click', closeDupDialog);
                 $('#dmDupDialog').addEventListener('click', function (e) { if (e.target.id === 'dmDupDialog') { closeDupDialog(); } });

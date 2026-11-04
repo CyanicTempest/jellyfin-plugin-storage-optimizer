@@ -430,7 +430,8 @@ public class DataManagerController : ControllerBase
     public async Task<ActionResult<DuplicateReport>> GetDuplicates(CancellationToken cancellationToken)
     {
         var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
-        return Ok(DuplicateFinder.Find(report));
+        var kept = await SmallerFiles.KeptAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(DuplicateFinder.Find(report, kept));
     }
 
     /// <summary>
