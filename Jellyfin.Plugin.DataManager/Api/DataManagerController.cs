@@ -513,7 +513,7 @@ public class DataManagerController : ControllerBase
     }
 
     /// <summary>
-    /// Starts a leftover check and clean-up now.
+    /// Starts a leftover check now. It lists what it finds and deletes nothing.
     /// </summary>
     /// <returns>No content.</returns>
     [HttpPost("Leftovers/Scan")]

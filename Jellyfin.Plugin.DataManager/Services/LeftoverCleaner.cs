@@ -16,16 +16,15 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.DataManager.Services;
 
 /// <summary>
-/// Finds files Jellyfin leaves behind that its own scheduled tasks don't clear, and cleans up the ones it can make again.
+/// Finds files Jellyfin leaves behind that its own scheduled tasks don't clear, for the user to review.
 /// </summary>
 /// <remarks>
 /// Jellyfin's "Clean Cache Directory", "Clean Transcode Directory" and "Clean Log Directory" tasks already clear its
 /// cache, transcode, temp and log folders, and when a library scan removes an item, Jellyfin deletes its metadata and
 /// trickplay folders. What's left is metadata and trickplay folders that missed that (as after a crash or an item
 /// removed while Jellyfin was stopped), "Film.trickplay" folders saved beside media whose video was deleted or renamed
-/// outside Jellyfin (it never deletes those), and sample clips, which Jellyfin hides. Metadata and trickplay folders
-/// are deleted without asking, as Jellyfin makes them again if needed. Sample clips might be wanted, so they're only
-/// listed for the user to confirm.
+/// outside Jellyfin (it never deletes those), and sample clips, which Jellyfin hides. Everything is listed for the user
+/// to confirm, on a schedule too: nothing is deleted until they press Delete.
 /// </remarks>
 public sealed class LeftoverCleaner
 {
@@ -75,7 +74,7 @@ public sealed class LeftoverCleaner
     }
 
     /// <summary>
-    /// Looks for leftovers, deletes the ones Jellyfin can make again, and saves what's left for the user.
+    /// Looks for leftovers and saves them for the user to review. Nothing is deleted.
     /// </summary>
     /// <param name="progress">Progress from 0 to 100.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
@@ -92,41 +91,33 @@ public sealed class LeftoverCleaner
         progress.Report(30);
         var trickplay = FindOrphanedItemFolders(Path.Combine(_applicationPaths.DataPath, "trickplay"), LeftoverKinds.Trickplay, cancellationToken);
         progress.Report(40);
-        var found = new List<Leftover>();
         foreach (var (orphans, total, what) in new[] { (metadata.Orphans, metadata.Total, "metadata"), (trickplay.Orphans, trickplay.Total, "trickplay") })
         {
             // If most of a folder looks orphaned, the library is more likely broken or offline than really emptied.
             if (orphans.Count > 20 && orphans.Count * 2 > total)
             {
                 held.Add(string.Create(CultureInfo.InvariantCulture, $"{orphans.Count} of {total} {what} folders"));
-                foreach (var orphan in orphans)
-                {
-                    report.Items.Add(orphan);
-                }
             }
-            else
+
+            foreach (var orphan in orphans)
             {
-                found.AddRange(orphans);
+                report.Items.Add(orphan);
             }
         }
 
-        FindInLibraries(found, report.Items, cancellationToken);
-        progress.Report(80);
-
-        foreach (var leftover in found)
+        var trickplayBesideMedia = new List<Leftover>();
+        FindInLibraries(trickplayBesideMedia, report.Items, cancellationToken);
+        foreach (var leftover in trickplayBesideMedia)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (StillLeftOver(leftover) && TryDelete(leftover))
-            {
-                report.CleanedCount++;
-                report.CleanedBytes += leftover.SizeBytes;
-            }
+            report.Items.Add(leftover);
         }
+
+        progress.Report(80);
 
         if (held.Count > 0)
         {
-            report.HeldBack = "So much Jellyfin data looked orphaned (" + string.Join(" and ", held)
-                + ") that a library may be offline or Jellyfin's database may have changed, so none of it was deleted.";
+            report.HeldBack = "So much Jellyfin data looks orphaned (" + string.Join(" and ", held)
+                + ") that a library may be offline or Jellyfin's database may have changed.";
             _logger.LogWarning("Storage Optimizer left orphaned-looking Jellyfin data alone: {Reason}", report.HeldBack);
         }
 
@@ -143,9 +134,7 @@ public sealed class LeftoverCleaner
 
         progress.Report(100);
         _logger.LogInformation(
-            "Storage Optimizer cleaned up {Count} leftover folders ({Bytes} bytes); {Waiting} leftovers wait for the user",
-            report.CleanedCount,
-            report.CleanedBytes,
+            "Storage Optimizer found {Waiting} leftovers for the user to review",
             report.Items.Count);
         return report;
     }

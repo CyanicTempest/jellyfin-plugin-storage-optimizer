@@ -1052,6 +1052,7 @@
                         </div>
                         <div class="dm-df">
                             <button type="button" id="dmLeftoverScan" class="dm-button">Check now</button>
+                            <span class="dm-hint" style="flex: 1; min-width: 0">Checking only looks. Nothing is deleted until you press Delete, and your videos aren't touched.</span>
                             <div class="dm-df-r">
                                 <button type="button" id="dmLeftoverDelete" class="dm-button dm-danger" disabled>Delete</button>
                             </div>
@@ -3884,14 +3885,21 @@
 
                 // Leftovers: what Jellyfin's own clean-up misses. Its metadata and trickplay folders for videos that
                 // are gone are cleaned by the check itself; sample clips, and anything held back, wait here for the user.
+                var leftoverRunning = false;
                 var leftoverNames = { Sample: 'Sample clips', Metadata: 'Jellyfin metadata', Trickplay: 'Trickplay images', TrickplayBesideMedia: 'Trickplay images' };
 
                 function loadLeftovers() {
                     if (leftoverTimer) { clearTimeout(leftoverTimer); leftoverTimer = null; }
                     return ApiClient.getJSON(ApiClient.getUrl('DataManager/Leftovers')).then(function (data) {
                         var running = data.State === 'Running' || data.State === 'Cancelling';
+                        var finished = leftoverRunning && !running;
+                        leftoverRunning = running;
                         leftovers = data.Report || { Items: [] };
                         renderLeftovers(running ? (data.Progress || 0) : null);
+                        if (finished) {
+                            var count = (leftovers.Items || []).length;
+                            showLeftoverNotice(count ? 'Checked just now. ' + plural(count, 'item') + ' to review.' : 'Checked just now. Nothing new.');
+                        }
                         if (running) { leftoverTimer = setTimeout(loadLeftovers, 1500); }
                     }, function () {
                         $('#dmLeftoverLine').textContent = 'The leftover check didn\'t load. Reload the page to try again.';
@@ -3907,9 +3915,9 @@
                     if (running) {
                         line = 'Checking for leftovers, ' + Math.round(progress) + '% done.';
                     } else if (!report.GeneratedAt) {
-                        line = 'Finds what Jellyfin\'s own clean-up misses: metadata and trickplay images left behind by videos that are gone, and sample clips. It runs when you press Check now, or on a schedule you add under Scheduled Tasks.';
+                        line = 'Finds what Jellyfin\'s own clean-up misses: metadata and trickplay images left behind by videos that are gone, and sample clips. It runs when you press Check now, or on a schedule you add under Scheduled Tasks. Nothing is deleted until you choose.';
                     } else {
-                        line = items.length ? '' : 'Nothing is waiting. No sample clips found.';
+                        line = items.length ? '' : 'Nothing is waiting.';
                     }
                     $('#dmLeftoverLine').textContent = line;
                     var stats = $('#dmLeftoverStats');
@@ -3917,8 +3925,7 @@
                     if (!running && report.GeneratedAt) {
                         var when = new Date(report.GeneratedAt);
                         stats.innerHTML = '<div class="dm-status-tile"><b>' + escapeHtml(when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))
-                            + '</b><span>Last checked</span></div>'
-                            + '<div class="dm-status-tile"><b>' + escapeHtml(formatBytes(report.CleanedBytes || 0)) + '</b><span>' + (report.CleanedCount ? 'Cleaned up by itself, ' + plural(report.CleanedCount, 'folder') : 'Nothing needed cleaning up by itself') + '</span></div>';
+                            + '</b><span>Last checked</span></div>';
                     }
                     var total = items.reduce(function (sum, l) { return sum + l.SizeBytes; }, 0);
                     $('#dmLeftoverChips').innerHTML = items.length ? '<span class="dm-chip">' + plural(items.length, 'item') + '</span><span class="dm-chip dm-chip-acc">' + escapeHtml(formatBytes(total)) + '</span>' : '';
@@ -3927,7 +3934,7 @@
                     $('#dmLeftoverSelectNone').classList.toggle('dm-hidden', !items.length);
 
                     var held = $('#dmLeftoverHeld');
-                    held.textContent = report.HeldBack ? report.HeldBack + ' Check your libraries are online. If they are, tick these below to delete them.' : '';
+                    held.textContent = report.HeldBack ? report.HeldBack + ' Check your libraries are online before deleting any of these.' : '';
                     held.classList.toggle('dm-hidden', !report.HeldBack);
 
                     var ids = {};
@@ -3945,7 +3952,7 @@
                     $('#dmLeftoverList').innerHTML = kinds.map(function (k) {
                         var bytes = k.items.reduce(function (sum, l) { return sum + l.SizeBytes; }, 0);
                         return '<div class="dm-grp"><div class="dm-grp-h"><div><b>' + escapeHtml(k.label) + '</b><div class="dm-hint">'
-                            + (k.sample ? 'Jellyfin hides sample clips and never plays them.' : 'Jellyfin makes these again if they\'re needed.') + '</div></div>'
+                            + (k.sample ? 'Jellyfin hides sample clips and never plays them.' : 'Left behind by videos that are gone. Jellyfin makes these again if they\'re needed.') + '</div></div>'
                             + '<span class="dm-chip">' + plural(k.items.length, 'item') + ' · ' + escapeHtml(formatBytes(bytes)) + '</span></div>'
                             + k.items.map(function (l) {
                                 var cut = Math.max(l.Path.lastIndexOf('/'), l.Path.lastIndexOf('\\')) + 1;
@@ -3985,8 +3992,9 @@
                     } else if (!report.GeneratedAt) {
                         text = 'Not checked yet. ' + purpose + '.';
                     } else {
-                        number.textContent = 'None';
-                        text = (report.CleanedCount ? 'The last check cleaned up ' + formatBytes(report.CleanedBytes) + ' by itself. ' : '') + purpose;
+                        var checkedAt = new Date(report.GeneratedAt);
+                        number.textContent = 'Nothing new';
+                        text = 'Checked ' + checkedAt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + '. ' + purpose;
                     }
                     var extras = extraFiles();
                     if (extras.length && progress == null) {

@@ -25,13 +25,13 @@ public class LeftoverCleanupTask : IScheduledTask
     }
 
     /// <inheritdoc />
-    public string Name => "Clean up leftover files";
+    public string Name => "Find leftover files";
 
     /// <inheritdoc />
     public string Key => "DataManagerLeftoverCleanup";
 
     /// <inheritdoc />
-    public string Description => "Deletes metadata and trickplay folders left behind by videos that are gone, and finds sample clips for you to review. Media is never deleted without asking. It does not run on its own until you add a trigger.";
+    public string Description => "Finds metadata and trickplay folders left behind by videos that are gone, and sample clips, for you to review in Leftovers. Nothing is deleted until you press Delete there. It does not run on its own until you add a trigger.";
 
     /// <inheritdoc />
     public string Category => "Storage Optimizer";

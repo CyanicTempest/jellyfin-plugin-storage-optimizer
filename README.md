@@ -41,7 +41,7 @@ This plugin re-encodes, remuxes, replaces and deletes media files. It is early s
 
 - Back up your media before using it, and try each setting on a copy first.
 - Deleting videos asks for confirmation, and re-encodes keep the original unless you choose to replace it. Those prompts don't make a bug impossible.
-- Checking for leftovers deletes orphaned Jellyfin metadata and trickplay folders without asking. It runs only when you press **Check now** or add it as a schedule under **Dashboard > Scheduled Tasks**. Sample clips are only deleted after you confirm.
+- Checking for leftovers lists orphaned Jellyfin metadata and trickplay folders, and sample clips, for you to review. It runs when you press **Check now** or add it as a schedule under **Dashboard > Scheduled Tasks**, and it deletes nothing by itself. Sample clips are only deleted after you confirm.
 - NVIDIA hardware encoding has had the most use. Intel Quick Sync Video, AMD, AV1 and Dolby Vision removal have had much less.
 - It comes with no warranty, as the licence below explains.
 
@@ -54,7 +54,7 @@ Storage Optimizer only works on files already in your Jellyfin libraries. It doe
 - It makes no network requests of its own. There is no telemetry, update check or download in its code.
 - It runs the ffmpeg and ffprobe that Jellyfin already uses. To find your GPU it can also run `nvidia-smi`, `lspci` or PowerShell.
 - It writes new files next to the originals. An unfinished encode is a hidden partial file that is cleaned up if the encode fails or is cancelled. It also keeps a few small report files in its own plugin data folder.
-- It deletes only what you confirm in the dashboard, apart from the orphaned metadata and trickplay folders described under Warning.
+- It deletes only what you confirm in the dashboard.
 - Every route it adds to Jellyfin's API needs an administrator.
 
 ## Install
