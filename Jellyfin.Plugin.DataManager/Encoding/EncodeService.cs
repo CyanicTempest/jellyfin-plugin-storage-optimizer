@@ -14,6 +14,7 @@ using Jellyfin.Plugin.DataManager.Models;
 using Jellyfin.Plugin.DataManager.Services;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Providers;
@@ -177,6 +178,7 @@ public sealed class EncodeService : IDisposable
         var busy = BusyItems();
         var created = new List<EncodeJob>();
         var languages = NormalizeLanguages(request.Languages);
+        var batch = Guid.NewGuid();
         foreach (var itemId in request.ItemIds.Distinct().Where(id => !busy.ContainsKey(id)))
         {
             var item = _libraryManager.GetItemById<Video>(itemId);
@@ -202,8 +204,19 @@ public sealed class EncodeService : IDisposable
                 Hdr = request.Hdr,
                 StripCoverArt = request.StripCoverArt,
                 StripFonts = request.StripFonts,
-                SourceBytes = item?.Size ?? 0
+                SourceBytes = item?.Size ?? 0,
+                BatchId = batch
             };
+            if (item is Episode episode)
+            {
+                var seriesId = episode.SeriesId.Equals(Guid.Empty) ? episode.FindSeriesId() : episode.SeriesId;
+                job.SeriesName = StorageScanner.SeriesName(episode);
+                job.SeriesId = seriesId.Equals(Guid.Empty) ? null : seriesId.ToString("N", CultureInfo.InvariantCulture);
+                job.SeasonName = string.IsNullOrEmpty(episode.SeasonName) ? episode.FindSeasonName() : episode.SeasonName;
+                job.SeasonNumber = episode.ParentIndexNumber;
+                job.EpisodeNumber = episode.IndexNumber;
+                job.EpisodeName = episode.Name;
+            }
 
             lock (_jobsLock)
             {

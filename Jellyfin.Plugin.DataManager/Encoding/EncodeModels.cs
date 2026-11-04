@@ -280,6 +280,27 @@ public class EncodeJob
     /// <summary>Gets or sets the source path.</summary>
     public string SourcePath { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets which request queued the job, as a season's episodes are shown together.</summary>
+    public Guid BatchId { get; set; }
+
+    /// <summary>Gets or sets the series, for an episode.</summary>
+    public string? SeriesName { get; set; }
+
+    /// <summary>Gets or sets the series id, for an episode.</summary>
+    public string? SeriesId { get; set; }
+
+    /// <summary>Gets or sets the season's name, for an episode.</summary>
+    public string? SeasonName { get; set; }
+
+    /// <summary>Gets or sets the season number, for an episode.</summary>
+    public int? SeasonNumber { get; set; }
+
+    /// <summary>Gets or sets the episode number, for an episode.</summary>
+    public int? EpisodeNumber { get; set; }
+
+    /// <summary>Gets or sets the episode's own title, for an episode.</summary>
+    public string? EpisodeName { get; set; }
+
     /// <summary>Gets or sets the final output path, once known.</summary>
     public string? OutputPath { get; set; }
 

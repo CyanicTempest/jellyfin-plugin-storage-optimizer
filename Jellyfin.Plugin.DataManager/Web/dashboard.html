@@ -160,6 +160,12 @@
             #DataManagerDashboardPage .dm-jobs { overflow: hidden; }
             #DataManagerDashboardPage .dm-jobs-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; }
             #DataManagerDashboardPage .dm-job { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 176px; gap: 8px 24px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--dm-soft); }
+            #DataManagerDashboardPage .dm-job-season { padding-left: 14px; }
+            #DataManagerDashboardPage .dm-job-toggle { display: inline-flex; align-items: flex-start; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+            #DataManagerDashboardPage .dm-job-toggle:hover .dm-job-title { color: var(--dm-tint-ink); }
+            #DataManagerDashboardPage .dm-job-toggle .dm-ic { flex: none; margin-top: 2px; transition: transform 0.15s; }
+            #DataManagerDashboardPage .dm-job-toggle[aria-expanded="true"] .dm-ic { transform: rotate(90deg); }
+            #DataManagerDashboardPage .dm-job-episodes .dm-job { padding-left: 40px; background: var(--dm-deep); }
             #DataManagerDashboardPage .dm-job-title { font-weight: 500; font-size: 14px; overflow-wrap: anywhere; }
             #DataManagerDashboardPage .dm-job-meta { margin-top: 3px; font-size: 12.5px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-progress { height: 6px; border-radius: 3px; background: var(--dm-raised); overflow: hidden; }
@@ -1063,6 +1069,8 @@
                 var expanded = {};
                 var sets = {};
                 var filesByPath = {};
+                // Seasons in the job list the user has opened or closed.
+                var jobsOpen = {};
                 var filterTimer = null;
                 var leftovers = null;
                 // The library tab picked above the media list ('' for all), and how many titles of it are drawn.
@@ -4849,39 +4857,147 @@
                     now.classList.toggle('dm-hidden', !showNow);
                     now.classList.toggle('dm-live', showNow);
                     if (showNow) { now.querySelector('span').textContent = lastStatus.Summary; }
-                    patchRows($('#dmJobs'), jobs.map(function (j) {
-                        var output = jobOutputFile(j);
-                        var what = j.IsRemux ? 'Remux' : codecLabel(j.Codec.toLowerCase()) + (j.ScaledTo ? ' ' + j.ScaledTo : '') + ' · ' + levelName(qualities, j.Quality)
-                            + (j.Effort && j.Effort !== 'Standard' ? ' · ' + j.Effort.toLowerCase() : '');
-                        var finished = j.State === 'Completed' && j.OutputBytes;
-                        var meta = what + ' · ' + (j.Mode === 'KeepBoth' ? 'keeps original' : 'replaces original') + (finished ? '' : ' · ' + formatBytes(j.SourceBytes));
-                        var actions = (j.State === 'Paused' ? '<button type="button" class="dm-small-button dm-resume" data-id="' + j.Id + '" title="Carry on now, even though someone is watching">Resume now</button>' : '')
-                            + (j.CanCancel ? '<button type="button" class="dm-small-button dm-quiet dm-cancel" data-id="' + j.Id + '">Cancel</button>' : '')
-                            + (j.State === 'NeedsDecision'
-                                ? '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="true">' + (j.Mode === 'Replace' ? 'Replace anyway' : 'Add it anyway') + '</button>'
-                                    + '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="false">Delete the new file</button>'
-                                : '');
-                        // Next to Done: compare the two versions when the original was kept, otherwise open the title in Jellyfin.
-                        var afterDone = j.Mode === 'KeepBoth'
-                            ? (output && filesById[normaliseId(j.ItemId)] ? '<button type="button" class="dm-small-button dm-compare" data-id="' + normaliseId(j.ItemId) + '" data-other="' + output.ItemId + '">' + icon('compare') + 'Compare</button>' : '')
-                            : '<a class="dm-small-button dm-open" href="' + escapeHtml(jellyfinItemLink(j.ItemId)) + '" title="Open this title in Jellyfin">' + icon('externalLink') + 'Open in Jellyfin</a>';
-                        var middle;
-                        if (j.State === 'Running' || j.State === 'Paused') {
-                            middle = '<div><div class="dm-progress' + (j.State === 'Paused' ? ' dm-paused' : '') + '" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + j.Progress.toFixed(0) + '"><div style="width:' + j.Progress.toFixed(1) + '%"></div></div>'
-                                + '<div class="dm-job-status">' + escapeHtml(jobStatus(j)) + '</div></div>';
-                        } else if (finished) {
-                            var smaller = j.SourceBytes > j.OutputBytes ? ', ' + Math.round((j.SourceBytes - j.OutputBytes) / j.SourceBytes * 100) + '% smaller' : '';
-                            middle = '<div class="dm-job-result"><span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Done</span>' + afterDone + '<span>' + escapeHtml(formatBytes(j.SourceBytes) + ' to ' + formatBytes(j.OutputBytes) + smaller)
-                                + (j.Message ? '. ' + escapeHtml(j.Message) : '') + '</span></div>';
-                        } else {
-                            middle = '<div class="dm-job-status dm-first ' + (j.State === 'Failed' ? 'dm-failed' : j.State === 'NeedsDecision' ? 'dm-attention' : '') + '">' + escapeHtml(jobStatus(j)) + '</div>';
-                        }
-                        return {
-                            key: j.Id,
-                            html: '<div class="dm-job"><div><div class="dm-job-title">' + escapeHtml(j.Name) + '</div><div class="dm-job-meta">' + escapeHtml(meta) + '</div></div>'
-                                + middle + '<div class="dm-job-actions">' + actions + '</div></div>'
-                        };
+                    patchRows($('#dmJobs'), jobGroups(jobs).map(function (group) {
+                        return group.jobs.length > 1 ? seasonRow(group) : { key: group.jobs[0].Id, html: '<div>' + jobHtml(group.jobs[0]) + '</div>' };
                     }));
+                }
+
+                function jobHtml(j, episodeRow) {
+                    var output = jobOutputFile(j);
+                    var what = jobSettings(j);
+                    var finished = j.State === 'Completed' && j.OutputBytes;
+                    var meta = what + ' · ' + (j.Mode === 'KeepBoth' ? 'keeps original' : 'replaces original') + (finished ? '' : ' · ' + formatBytes(j.SourceBytes));
+                    var actions = (j.State === 'Paused' ? '<button type="button" class="dm-small-button dm-resume" data-id="' + j.Id + '" title="Carry on now, even though someone is watching">Resume now</button>' : '')
+                        + (j.CanCancel ? '<button type="button" class="dm-small-button dm-quiet dm-cancel" data-id="' + j.Id + '">Cancel</button>' : '')
+                        + (j.State === 'NeedsDecision'
+                            ? '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="true">' + (j.Mode === 'Replace' ? 'Replace anyway' : 'Add it anyway') + '</button>'
+                                + '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="false">Delete the new file</button>'
+                            : '');
+                    // Next to Done: compare the two versions when the original was kept, otherwise open the title in Jellyfin.
+                    var afterDone = j.Mode === 'KeepBoth'
+                        ? (output && filesById[normaliseId(j.ItemId)] ? '<button type="button" class="dm-small-button dm-compare" data-id="' + normaliseId(j.ItemId) + '" data-other="' + output.ItemId + '">' + icon('compare') + 'Compare</button>' : '')
+                        : '<a class="dm-small-button dm-open" href="' + escapeHtml(jellyfinItemLink(j.ItemId)) + '" title="Open this title in Jellyfin">' + icon('externalLink') + 'Open in Jellyfin</a>';
+                    var middle;
+                    if (j.State === 'Running' || j.State === 'Paused') {
+                        middle = progressHtml(j.Progress, j.State === 'Paused') + '<div class="dm-job-status">' + escapeHtml(jobStatus(j)) + '</div></div>';
+                    } else if (finished) {
+                        middle = '<div class="dm-job-result"><span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Done</span>' + afterDone + '<span>' + escapeHtml(sizeChange(j.SourceBytes, j.OutputBytes))
+                            + (j.Message ? '. ' + escapeHtml(j.Message) : '') + '</span></div>';
+                    } else {
+                        middle = '<div class="dm-job-status dm-first ' + (j.State === 'Failed' ? 'dm-failed' : j.State === 'NeedsDecision' ? 'dm-attention' : '') + '">' + escapeHtml(jobStatus(j)) + '</div>';
+                    }
+                    var title = !episodeRow ? j.Name : j.EpisodeNumber == null || /^episode\s/i.test(j.EpisodeName || '') ? j.EpisodeName || j.Name : 'Episode ' + j.EpisodeNumber + (j.EpisodeName ? ': ' + j.EpisodeName : '');
+                    return '<div class="dm-job"><div><div class="dm-job-title">' + escapeHtml(title) + '</div><div class="dm-job-meta">' + escapeHtml(meta) + '</div></div>'
+                        + middle + '<div class="dm-job-actions">' + actions + '</div></div>';
+                }
+
+                function jobSettings(j) {
+                    return j.IsRemux ? 'Remux' : codecLabel(j.Codec.toLowerCase()) + (j.ScaledTo ? ' ' + j.ScaledTo : '') + ' · ' + levelName(qualities, j.Quality)
+                        + (j.Effort && j.Effort !== 'Standard' ? ' · ' + j.Effort.toLowerCase() : '');
+                }
+
+                // Opens a <div> that the caller closes, so a status line can follow the bar.
+                function progressHtml(progress, paused) {
+                    return '<div><div class="dm-progress' + (paused ? ' dm-paused' : '') + '" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress.toFixed(0) + '"><div style="width:' + progress.toFixed(1) + '%"></div></div>';
+                }
+
+                function sizeChange(before, after) {
+                    return formatBytes(before) + ' to ' + formatBytes(after) + (before > after ? ', ' + Math.round((before - after) / before * 100) + '% smaller' : '');
+                }
+
+                // Two or more episodes of one season queued together show as the season, in the place of its newest job.
+                function jobGroups(jobs) {
+                    var groups = [];
+                    var bySeason = {};
+                    jobs.forEach(function (j) {
+                        var key = j.SeriesName ? 'season-' + j.BatchId + '-' + (j.SeriesId || j.SeriesName) + '-' + j.SeasonNumber : null;
+                        if (key && bySeason[key]) {
+                            bySeason[key].jobs.push(j);
+                            return;
+                        }
+                        var group = { key: key, jobs: [j] };
+                        if (key) { bySeason[key] = group; }
+                        groups.push(group);
+                    });
+                    groups.forEach(function (group) {
+                        group.jobs.sort(function (a, b) { return (a.EpisodeNumber == null ? 1e6 : a.EpisodeNumber) - (b.EpisodeNumber == null ? 1e6 : b.EpisodeNumber); });
+                    });
+                    return groups;
+                }
+
+                // How much is left of a season: what's running, then what's waiting at the speed the running ones are going.
+                function seasonTimeLeft(jobs) {
+                    var running = jobs.filter(function (j) { return j.State === 'Running' && j.RemainingSeconds != null && j.Progress > 0 && j.Progress < 100; });
+                    if (!running.length) { return null; }
+                    var perByte = running.reduce(function (sum, j) { return sum + j.RemainingSeconds / (j.SourceBytes * (1 - j.Progress / 100)); }, 0) / running.length;
+                    var seconds = running.reduce(function (sum, j) { return sum + j.RemainingSeconds; }, 0);
+                    jobs.forEach(function (j) { if (j.State === 'Queued' || j.State === 'Paused') { seconds += j.SourceBytes * perByte; } });
+                    var slots = lastStatus && lastStatus.Slots > 1 ? lastStatus.Slots : 1;
+                    return seconds / Math.max(slots, running.length);
+                }
+
+                function seasonRow(group) {
+                    var jobs = group.jobs;
+                    var first = jobs[0];
+                    var count = function (states) { return jobs.filter(function (j) { return states.indexOf(j.State) !== -1; }).length; };
+                    var done = jobs.filter(function (j) { return j.State === 'Completed'; });
+                    var running = count(['Running']);
+                    var paused = count(['Paused']);
+                    var waiting = count(['Queued']);
+                    var attention = count(['NeedsDecision', 'Failed']);
+                    var active = running + paused + waiting;
+                    var bytes = jobs.reduce(function (sum, j) { return sum + j.SourceBytes; }, 0) || 1;
+                    var worked = jobs.reduce(function (sum, j) {
+                        return sum + j.SourceBytes * (j.State === 'Completed' ? 100 : j.State === 'Running' || j.State === 'Paused' ? j.Progress : 0);
+                    }, 0);
+                    var settings = jobs.map(jobSettings).filter(function (v, i, all) { return all.indexOf(v) === i; });
+                    var modes = jobs.map(function (j) { return j.Mode; }).filter(function (v, i, all) { return all.indexOf(v) === i; });
+                    var meta = [settings.length === 1 ? settings[0] : 'Mixed settings']
+                        .concat(modes.length === 1 ? [modes[0] === 'KeepBoth' ? 'keeps original' : 'replaces original'] : [])
+                        .concat(active ? [formatBytes(bytes)] : []).join(' · ');
+                    var open = group.key in jobsOpen ? jobsOpen[group.key] : attention > 0;
+
+                    var middle;
+                    var heading = done.length + ' of ' + jobs.length + ' done';
+                    if (active) {
+                        var left = timeLeft(seasonTimeLeft(jobs));
+                        var line = [heading, running ? running + ' encoding' : '', paused ? paused + ' paused' : '', waiting ? waiting + ' waiting' : '', attention ? attention + ' need' + (attention === 1 ? 's' : '') + ' a look' : '', left].filter(Boolean).join(' · ');
+                        middle = progressHtml(worked / bytes, !running && paused > 0) + '<div class="dm-job-status">' + escapeHtml(line) + '</div></div>';
+                    } else {
+                        var before = done.reduce(function (sum, j) { return sum + j.SourceBytes; }, 0);
+                        var after = done.reduce(function (sum, j) { return sum + (j.OutputBytes || 0); }, 0);
+                        var other = jobs.length - done.length;
+                        middle = '<div class="dm-job-result">'
+                            + (other ? '<span class="dm-chip dm-chip-warn">' + heading + '</span>' : '<span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Done</span>')
+                            + (done.length ? '<span>' + escapeHtml(sizeChange(before, after)) + '</span>' : '') + '</div>';
+                    }
+
+                    var cancellable = jobs.filter(function (j) { return j.CanCancel; });
+                    var actions = cancellable.length ? '<button type="button" class="dm-small-button dm-quiet dm-cancel-season" data-key="' + escapeHtml(group.key) + '">Cancel the rest</button>' : '';
+                    var title = first.SeriesName + ', ' + (first.SeasonName || (first.SeasonNumber === 0 ? 'Specials' : first.SeasonNumber == null ? 'Unknown season' : 'Season ' + first.SeasonNumber));
+                    return {
+                        key: group.key,
+                        html: '<div><div class="dm-job dm-job-season"><div><button type="button" class="dm-job-toggle" data-group="' + escapeHtml(group.key) + '" aria-expanded="' + open + '" title="' + (open ? 'Hide' : 'Show') + ' the episodes">' + icon('chevronRight')
+                            + '<span><span class="dm-job-title">' + escapeHtml(title) + '</span><span class="dm-job-meta" style="display:block">' + plural(jobs.length, 'episode') + ' · ' + escapeHtml(meta) + '</span></span></button></div>'
+                            + middle + '<div class="dm-job-actions">' + actions + '</div></div>'
+                            + (open ? '<div class="dm-job-episodes">' + jobs.map(function (j) { return jobHtml(j, true); }).join('') + '</div>' : '') + '</div>'
+                    };
+                }
+
+                function cancelSeason(key) {
+                    var group = jobGroups(lastJobs).filter(function (g) { return g.key === key; })[0];
+                    var jobs = group ? group.jobs.filter(function (j) { return j.CanCancel; }) : [];
+                    if (!jobs.length) { return; }
+                    openConfirm({
+                        title: 'Cancel ' + plural(jobs.length, 'episode') + '?',
+                        body: '<p class="dm-confirm-note">The ' + plural(jobs.length, 'episode') + ' still encoding or waiting stop, and their originals stay as they are. Episodes that are finished aren\'t changed.</p>',
+                        ok: 'Cancel them',
+                        action: function () {
+                            return Promise.all(jobs.map(function (j) {
+                                return ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('DataManager/Encode/Jobs/' + j.Id) }).then(null, function () { return null; });
+                            })).then(loadJobs);
+                        }
+                    });
                 }
 
                 function loadJobs() {
@@ -4941,6 +5057,17 @@
                     var resume = e.target.closest('.dm-resume');
                     if (resume) {
                         ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('DataManager/Encode/Jobs/' + resume.dataset.id + '/Resume') }).then(loadJobs, loadJobs);
+                        return;
+                    }
+                    var jobToggle = e.target.closest('.dm-job-toggle');
+                    if (jobToggle) {
+                        jobsOpen[jobToggle.dataset.group] = jobToggle.getAttribute('aria-expanded') !== 'true';
+                        renderJobs(lastJobs);
+                        return;
+                    }
+                    var cancelRest = e.target.closest('.dm-cancel-season');
+                    if (cancelRest) {
+                        cancelSeason(cancelRest.dataset.key);
                         return;
                     }
                     var cancel = e.target.closest('.dm-cancel');
