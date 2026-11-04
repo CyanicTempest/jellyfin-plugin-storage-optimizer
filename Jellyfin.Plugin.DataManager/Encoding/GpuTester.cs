@@ -29,11 +29,31 @@ namespace Jellyfin.Plugin.DataManager.Encoding;
 /// <param name="Message">What to tell the user.</param>
 /// <param name="Clip">What was encoded for the test, or null.</param>
 /// <param name="TestedAt">When the result was measured, or null.</param>
-public sealed record GpuTestStatus(string State, int Step, int Steps, IReadOnlyList<double> Speeds, int SweetSpot, string Message, string? Clip, DateTime? TestedAt = null)
+/// <param name="Passes">The total speed of each kind of run, in frames a second, with 1, 2, 3 and so on at once.</param>
+/// <param name="Decoder">GPU or CPU: where the film was decoded, or null when not known.</param>
+/// <param name="FilmFrameRate">The film's frames a second, which turns speeds into times real time, or 0 when not known.</param>
+public sealed record GpuTestStatus(string State, int Step, int Steps, IReadOnlyList<double> Speeds, int SweetSpot, string Message, string? Clip, DateTime? TestedAt = null, IReadOnlyList<GpuTestPass>? Passes = null, string? Decoder = null, double FilmFrameRate = 0)
 {
     /// <summary>Gets the status of a GPU that hasn't been tested.</summary>
     public static GpuTestStatus Idle { get; } = new("Idle", 0, GpuParsing.MostAtOnce, [], 0, string.Empty, null);
 }
+
+/// <summary>
+/// One kind of run in a GPU test.
+/// </summary>
+/// <param name="Name">Encoder (a generated picture, so only the encoder is timed), Film (a scene of the film) or OnGpu (the film with its frames kept on the GPU).</param>
+/// <param name="Label">What to call it on the page.</param>
+/// <param name="Fps">The total frames a second with 1, 2, 3 and so on at once.</param>
+public sealed record GpuTestPass(string Name, string Label, IReadOnlyList<double> Fps);
+
+/// <summary>
+/// What a finished test keeps besides its speeds, so it can be shown again later.
+/// </summary>
+/// <param name="Passes">The runs.</param>
+/// <param name="Decoder">GPU or CPU.</param>
+/// <param name="FilmFrameRate">The film's frames a second.</param>
+/// <param name="Message">What the test said.</param>
+public sealed record GpuTestDetails(IReadOnlyList<GpuTestPass> Passes, string Decoder, double FilmFrameRate, string Message);
 
 /// <summary>
 /// The GPU, how many encodes at once it suggests, and the last test of it.
@@ -66,6 +86,10 @@ public sealed class GpuTester : IDisposable
     // How long encodes run before timing starts, once all of them are putting out frames, and how long they're timed.
     private const double SettleSeconds = 3;
     private const double WindowSeconds = 8;
+
+    // The extra runs are timed once each rather than twice, so they're a little shorter.
+    private const double ExtraSettleSeconds = 2;
+    private const double ExtraWindowSeconds = 6;
 
     private static readonly TimeSpan _pauseWait = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan _copyTimeout = TimeSpan.FromMinutes(5);
@@ -135,7 +159,20 @@ public sealed class GpuTester : IDisposable
             return GpuTestStatus.Idle;
         }
 
-        return new GpuTestStatus("Done", speeds.Count, GpuParsing.MostAtOnce, speeds, GpuParsing.SweetSpot(speeds), Summary(speeds), null, config.GpuTestedAt);
+        var details = ReadDetails(config.GpuTestDetails);
+        return new GpuTestStatus("Done", speeds.Count, GpuParsing.MostAtOnce, speeds, GpuParsing.SweetSpot(speeds), details?.Message ?? Summary(speeds), null, config.GpuTestedAt, details?.Passes, details?.Decoder, details?.FilmFrameRate ?? 0);
+    }
+
+    private static GpuTestDetails? ReadDetails(string json)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(json) ? null : System.Text.Json.JsonSerializer.Deserialize<GpuTestDetails>(json);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -304,6 +341,12 @@ public sealed class GpuTester : IDisposable
         }
 
         var clipName = clip.Item.Name + " (" + clip.File.Height + "p)";
+        var frameRate = (double?)clip.Item.GetMediaStreams().FirstOrDefault(s => s.Type == MediaStreamType.Video)?.RealFrameRate ?? 24;
+        if (frameRate < 1)
+        {
+            frameRate = 24;
+        }
+
         var source = EncodeService.SourceInfo(clip.Item, new FileInfo(clip.Item.Path));
         var duration = clip.File.DurationSeconds;
 
@@ -325,30 +368,39 @@ public sealed class GpuTester : IDisposable
 
         // A speed test of the estimator's would share the GPU, so it stops, and none starts until this is done.
         _speed.CancelTests();
-        var speeds = await _speed.ExclusiveAsync(() => TrialsAsync(encoder, clip, source, clipName, cancellationToken), cancellationToken).ConfigureAwait(false);
+        var speeds = await _speed.ExclusiveAsync(() => TrialsAsync(encoder, clip, source, clipName, frameRate, cancellationToken), cancellationToken).ConfigureAwait(false);
         if (speeds.Failure is { } failure)
         {
             return Failed(failure);
         }
 
         var finished = DateTime.UtcNow;
+        var summary = string.Join(
+            ' ',
+            new[]
+            {
+                Summary(speeds.Speeds),
+                speeds.DecoderNote,
+                speeds.Diagnosis,
+                speeds.Steady ? null : "Some runs gave different speeds, so something else may have been using the GPU. It's worth testing again when the server is quiet."
+            }.Where(t => !string.IsNullOrEmpty(t)));
         var config = Plugin.Instance?.Configuration;
         if (config is not null)
         {
             config.GpuTestedDevice = GpuParsing.DeviceKey(info);
             config.GpuTestedAt = finished;
             config.GpuTestSpeeds = GpuParsing.FormatSpeeds(speeds.Speeds);
+            config.GpuTestDetails = System.Text.Json.JsonSerializer.Serialize(new GpuTestDetails(speeds.Passes, speeds.Decoder, frameRate, summary));
             Plugin.Instance!.SaveConfiguration();
         }
 
         _logger.LogInformation("Storage Optimizer's GPU test of {Gpu} on {Clip} with {Encoder}: {Speeds}", info.Name, clipName, encoder, GpuParsing.FormatSpeeds(speeds.Speeds));
-        var summary = Summary(speeds.Speeds) + (speeds.Steady ? string.Empty : " Some runs gave different speeds, so something else may have been using the GPU. It's worth testing again when the server is quiet.");
-        return new GpuTestStatus("Done", speeds.Speeds.Count, GpuParsing.MostAtOnce, speeds.Speeds, GpuParsing.SweetSpot(speeds.Speeds), summary, clipName, finished);
+        return new GpuTestStatus("Done", speeds.Speeds.Count, GpuParsing.MostAtOnce, speeds.Speeds, GpuParsing.SweetSpot(speeds.Speeds), summary, clipName, finished, speeds.Passes, speeds.Decoder, frameRate);
     }
 
     // Each number at once is timed twice: one, two, three, four, then back down. Whatever drifts during the test, such
     // as the card warming up, then counts the same for every number. Two runs that disagree get a third to settle it.
-    private async Task<Trials> TrialsAsync(string encoder, (Video Item, MediaFileInfo File) clip, SourceVideo source, string clipName, CancellationToken cancellationToken)
+    private async Task<Trials> TrialsAsync(string encoder, (Video Item, MediaFileInfo File) clip, SourceVideo source, string clipName, double frameRate, CancellationToken cancellationToken)
     {
         // Several encodes reading one film from a slow drive or a network share can go slower in total than one,
         // whatever the GPU can do, so the test encodes a copy of a scene on this server's own disk.
@@ -356,7 +408,7 @@ public sealed class GpuTester : IDisposable
         var scene = await CopySceneAsync(clip, cancellationToken).ConfigureAwait(false);
         try
         {
-            return await RunTrialsAsync(encoder, scene ?? clip.Item.Path, scene is null ? SceneStart(clip.File.DurationSeconds) : 0, scene is not null, source, clipName, cancellationToken).ConfigureAwait(false);
+            return await RunTrialsAsync(encoder, scene ?? clip.Item.Path, scene is null ? SceneStart(clip.File.DurationSeconds) : 0, scene is not null, source, clip.File, clipName, frameRate, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -395,7 +447,7 @@ public sealed class GpuTester : IDisposable
         }
     }
 
-    private async Task<Trials> RunTrialsAsync(string encoder, string path, double start, bool loop, SourceVideo source, string clipName, CancellationToken cancellationToken)
+    private async Task<Trials> RunTrialsAsync(string encoder, string path, double start, bool loop, SourceVideo source, MediaFileInfo film, string clipName, double frameRate, CancellationToken cancellationToken)
     {
         (string Path, double Start, bool Loop) scene = (path, start, loop);
 
@@ -412,8 +464,15 @@ public sealed class GpuTester : IDisposable
 
         if (warmUp is null)
         {
-            return new Trials([], "ffmpeg couldn't encode the test scene on the GPU. Check Jellyfin's Transcoding settings and its ffmpeg log.", false);
+            return Trials.Fail("ffmpeg couldn't encode the test scene on the GPU. Check Jellyfin's Transcoding settings and its ffmpeg log.");
         }
+
+        // Where the film was decoded, for the page: the GPU only if Jellyfin's settings let it and it worked.
+        var gpuDecodes = useDecoder && _hardware.Plan(encoder, source).Decoder is not null;
+        var decoder = gpuDecodes ? "GPU" : "CPU";
+        var decoderNote = gpuDecodes
+            ? "Your film was decoded on the GPU."
+            : useDecoder ? "Your film was decoded on the CPU, as Jellyfin's hardware decoding isn't set up for its format." : "Your film was decoded on the CPU, because the GPU couldn't decode it.";
 
         var totals = new List<List<double>>();
         for (var count = 1; count <= GpuParsing.MostAtOnce; count++)
@@ -423,7 +482,7 @@ public sealed class GpuTester : IDisposable
             {
                 if (count == 1)
                 {
-                    return new Trials([], "ffmpeg couldn't encode the test scene on the GPU. Check Jellyfin's Transcoding settings and its ffmpeg log.", false);
+                    return Trials.Fail("ffmpeg couldn't encode the test scene on the GPU. Check Jellyfin's Transcoding settings and its ffmpeg log.");
                 }
 
                 _logger.LogInformation("Storage Optimizer's GPU test stopped at {Count} at once: ffmpeg couldn't start that many", count);
@@ -459,7 +518,66 @@ public sealed class GpuTester : IDisposable
             steady = false;
         }
 
-        return new Trials(GpuParsing.RelativeSpeeds(totals), null, steady);
+        var speeds = GpuParsing.RelativeSpeeds(totals);
+        var passes = new List<GpuTestPass> { new("Film", "Your film", GpuParsing.Medians(totals.ConvertAll(t => (IReadOnlyList<double>)t))) };
+
+        // The same again with a generated picture, which takes the film's drive and decoding out of it. Next to the
+        // film's numbers, it shows whether the GPU or what feeds it is the limit.
+        var encoderOnly = await TimePassAsync("Timing the encoder alone", speeds, passes, count => TimeGeneratedAsync(count, encoder, film, frameRate, source, cancellationToken), clipName, frameRate, decoder, cancellationToken).ConfigureAwait(false);
+        if (encoderOnly.Count > 0)
+        {
+            passes.Add(new GpuTestPass("Encoder", "Encoder alone", encoderOnly));
+        }
+
+        return new Trials(speeds, null, steady, passes, decoder, decoderNote, GpuParsing.Diagnose(encoderOnly, passes[0].Fps));
+    }
+
+    // Times one, two, three and four at once, once each, and returns the total frames a second of each. It stops at
+    // the first number that can't be run, and returns what it has.
+    private async Task<IReadOnlyList<double>> TimePassAsync(string message, IReadOnlyList<double> speeds, List<GpuTestPass> passes, Func<int, Task<double?>> time, string clipName, double frameRate, string decoder, CancellationToken cancellationToken)
+    {
+        var results = new List<double>();
+        for (var count = 1; count <= GpuParsing.MostAtOnce; count++)
+        {
+            Update(new GpuTestStatus("Running", GpuParsing.MostAtOnce, GpuParsing.MostAtOnce, speeds, 0, count == 1 ? message : $"{message}, {count} at once", clipName, null, passes.ToList(), decoder, frameRate));
+            if (await time(count).ConfigureAwait(false) is not { } total)
+            {
+                break;
+            }
+
+            results.Add(total);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return results;
+    }
+
+    // Runs that many encodes of a generated picture, the size of the film's, and returns their total speed, or null if one failed.
+    private async Task<double?> TimeGeneratedAsync(int count, string encoder, MediaFileInfo film, double frameRate, SourceVideo source, CancellationToken cancellationToken)
+    {
+        var setup = _hardware.Plan(encoder, source, false);
+        var outputs = new List<string>();
+        try
+        {
+            var commands = new List<IList<string>>();
+            for (var i = 0; i < count; i++)
+            {
+                var output = Path.Combine(Path.GetTempPath(), "datamanager-gputest-" + Guid.NewGuid().ToString("N"));
+                outputs.Add(output);
+                commands.Add(FfmpegArguments.BuildGeneratedSpeedTest(output, film.Width, film.Height, frameRate, 100_000, encoder, QualityPreset.Balanced, EncodeEffort.Standard, source, setup.Arguments));
+            }
+
+            var total = await _speed.TimeTogetherAsync(commands, ExtraSettleSeconds, ExtraWindowSeconds, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Storage Optimizer's GPU test: {Count} at once with {Encoder}, encoding a generated picture: {Fps:F0} frames a second in total", count, encoder, total ?? 0);
+            return total;
+        }
+        finally
+        {
+            foreach (var output in outputs)
+            {
+                DeleteQuietly(output);
+            }
+        }
     }
 
     // Runs that many encodes together and returns their total speed, in frames a second, or null if any failed.
@@ -547,5 +665,8 @@ public sealed class GpuTester : IDisposable
         }
     }
 
-    private sealed record Trials(IReadOnlyList<double> Speeds, string? Failure, bool Steady);
+    private sealed record Trials(IReadOnlyList<double> Speeds, string? Failure, bool Steady, IReadOnlyList<GpuTestPass> Passes, string Decoder, string? DecoderNote, string? Diagnosis)
+    {
+        public static Trials Fail(string message) => new([], message, false, [], string.Empty, null, null);
+    }
 }

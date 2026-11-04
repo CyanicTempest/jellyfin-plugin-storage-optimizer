@@ -362,6 +362,42 @@ internal static partial class GpuParsing
         return runs.Count > 1 && runs.Max() > runs.Min() * 1.25;
     }
 
+    /// <summary>
+    /// Takes the middle run of each number at once, as frames a second in total.
+    /// </summary>
+    /// <param name="totals">The total frames a second of each run: first the runs of one at a time, then of two, and so on.</param>
+    /// <returns>The middle run of each.</returns>
+    public static IReadOnlyList<double> Medians(IReadOnlyList<IReadOnlyList<double>> totals)
+    {
+        ArgumentNullException.ThrowIfNull(totals);
+        return totals.Where(runs => runs.Count > 0).Select(Middle).ToList();
+    }
+
+    /// <summary>
+    /// Says what holds the speed back, by comparing the encoder on its own with the encoder fed from the film.
+    /// </summary>
+    /// <param name="encoderOnly">Total frames a second with 1, 2, 3 and so on at once, encoding a generated picture.</param>
+    /// <param name="film">The same, encoding a scene of the film.</param>
+    /// <returns>A sentence, or null when either wasn't measured.</returns>
+    public static string? Diagnose(IReadOnlyList<double> encoderOnly, IReadOnlyList<double> film)
+    {
+        ArgumentNullException.ThrowIfNull(encoderOnly);
+        ArgumentNullException.ThrowIfNull(film);
+
+        if (encoderOnly.Count == 0 || film.Count == 0 || encoderOnly.Max() <= 0)
+        {
+            return null;
+        }
+
+        var encoderBest = encoderOnly.Max();
+        var filmBest = film.Max();
+        var share = filmBest / encoderBest;
+        var numbers = string.Create(CultureInfo.InvariantCulture, $"{Math.Round(filmBest):0} against {Math.Round(encoderBest):0} frames a second at best");
+        return share >= 0.85
+            ? "Encoding your film runs about as fast as the encoder alone (" + numbers + "), so the GPU's encoders are the limit, not reading or decoding the film."
+            : string.Create(CultureInfo.InvariantCulture, $"Encoding your film reaches only {Math.Round(share * 100):0}% of what the encoder alone does ({numbers}), so reading or decoding the film is holding it back. That points to a slow drive or network share, or decoding on the CPU.");
+    }
+
     private static double Middle(IReadOnlyList<double> runs)
     {
         var sorted = runs.Order().ToList();

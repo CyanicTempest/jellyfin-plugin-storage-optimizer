@@ -86,4 +86,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the speed with 1, 2, 3 and 4 encodes at once from the last test, comma separated, such as "1.0,1.9,2.0,2.0".
     /// </summary>
     public string GpuTestSpeeds { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the rest of the last GPU test, as JSON: the speeds of each pass in frames a second, how the film was
+    /// decoded, the film's frame rate and what the test said, so the page can show them again after a restart.
+    /// </summary>
+    public string GpuTestDetails { get; set; } = string.Empty;
 }

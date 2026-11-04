@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.DataManager.Encoding;
@@ -189,5 +190,47 @@ public sealed class EncodingTests
 
         Assert.Equal("b", group.BestItemId);
         Assert.Equal(100, group.ReclaimableBytes);
+    }
+
+    [Fact]
+    public void Medians_gives_the_middle_run_of_each_number_at_once()
+    {
+        var totals = new List<IReadOnlyList<double>> { new[] { 600.0, 640, 100 }, new[] { 1100.0, 1000 }, Array.Empty<double>() };
+
+        Assert.Equal(new[] { 600.0, 1050.0 }, GpuParsing.Medians(totals));
+    }
+
+    [Fact]
+    public void Diagnose_blames_the_film_when_it_reaches_far_less_than_the_encoder_alone()
+    {
+        var text = GpuParsing.Diagnose([600, 1100, 1500, 1600], [600, 300, 280, 250]);
+
+        Assert.Contains("only 38%", text, StringComparison.Ordinal);
+        Assert.Contains("reading or decoding the film", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Diagnose_blames_the_encoders_when_the_film_keeps_up()
+    {
+        var text = GpuParsing.Diagnose([600, 1100, 1500, 1600], [590, 1050, 1400, 1500]);
+
+        Assert.Contains("the GPU's encoders are the limit", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Diagnose_says_nothing_without_both_runs()
+    {
+        Assert.Null(GpuParsing.Diagnose([], [600]));
+        Assert.Null(GpuParsing.Diagnose([600], []));
+    }
+
+    [Fact]
+    public void BuildGeneratedSpeedTest_makes_its_own_picture_and_reads_no_file()
+    {
+        var args = FfmpegArguments.BuildGeneratedSpeedTest("/tmp/out", 3840, 2160, 23.976, 100_000, "hevc_nvenc", QualityPreset.Balanced, EncodeEffort.Standard, _plainSource).ToList();
+
+        Assert.Equal("lavfi", args[args.IndexOf("-f") + 1]);
+        Assert.Equal("testsrc2=size=3840x2160:rate=24:duration=1,loop=loop=-1:size=12:start=0", args[args.IndexOf("-i") + 1]);
+        Assert.Equal("/tmp/out", args[^1]);
     }
 }

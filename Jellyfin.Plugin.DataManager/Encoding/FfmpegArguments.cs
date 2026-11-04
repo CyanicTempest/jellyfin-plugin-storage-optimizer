@@ -196,6 +196,43 @@ public static class FfmpegArguments
     }
 
     /// <summary>
+    /// Builds the arguments for a speed test that encodes a generated picture instead of a file, so nothing is read
+    /// from a drive or decoded and only the encoder is timed. A second of moving picture is made once and played
+    /// round and round from memory, which costs the CPU next to nothing even at thousands of frames a second.
+    /// </summary>
+    /// <param name="outputPath">The file to write, which the caller deletes.</param>
+    /// <param name="width">The picture's width.</param>
+    /// <param name="height">The picture's height.</param>
+    /// <param name="frameRate">The frames a second the picture is made at.</param>
+    /// <param name="frames">How many frames to encode at most.</param>
+    /// <param name="encoder">The ffmpeg encoder.</param>
+    /// <param name="quality">The quality preset.</param>
+    /// <param name="effort">How long to spend encoding.</param>
+    /// <param name="source">What is known about the video being stood in for, which decides the pixel format.</param>
+    /// <param name="hardware">Arguments that set up the GPU, which go before the input, or null for none.</param>
+    /// <returns>The arguments, one per entry.</returns>
+    public static IList<string> BuildGeneratedSpeedTest(string outputPath, int width, int height, double frameRate, int frames, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, IReadOnlyList<string>? hardware = null)
+    {
+        ArgumentNullException.ThrowIfNull(encoder);
+        ArgumentNullException.ThrowIfNull(source);
+
+        var rate = Math.Clamp((int)Math.Round(frameRate), 1, 120);
+        var args = new List<string> { "-hide_banner", "-nostdin", "-y" };
+        args.AddRange(hardware ?? []);
+
+        // Only a dozen frames are kept for the loop: at 4K each is about 12 MB, and a test runs up to four of these.
+        args.AddRange(
+        [
+            "-f", "lavfi", "-i",
+            string.Create(CultureInfo.InvariantCulture, $"testsrc2=size={width}x{height}:rate={rate}:duration=1,loop=loop=-1:size={Math.Min(rate, 12)}:start=0"),
+            "-frames:v", frames.ToString(CultureInfo.InvariantCulture)
+        ]);
+        args.AddRange(VideoArguments(encoder, quality, effort, source, null));
+        args.AddRange(["-an", "-sn", "-progress", "pipe:1", "-stats_period", "0.5", "-nostats", "-flush_packets", "1", "-f", BareFormat(encoder), outputPath]);
+        return args;
+    }
+
+    /// <summary>
     /// Builds the arguments that copy a stretch of a video, unchanged and without its sound, for timing encodes on.
     /// </summary>
     /// <param name="inputPath">The source file.</param>

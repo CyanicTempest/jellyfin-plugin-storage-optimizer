@@ -123,6 +123,13 @@
             #DataManagerConfigPage .dm-test-msg { margin: 0; font-size: 13px; line-height: 1.5; color: var(--dm-ink); }
             #DataManagerConfigPage .dm-test-msg.dm-bad { color: var(--dm-warning); }
             #DataManagerConfigPage .dm-test-sub { margin: 0; font-size: 12.5px; color: var(--dm-ink-3); }
+            #DataManagerConfigPage .dm-passes { border-collapse: collapse; width: 100%; max-width: 560px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+            #DataManagerConfigPage .dm-passes caption { text-align: left; color: var(--dm-ink-3); padding-bottom: 6px; }
+            #DataManagerConfigPage .dm-passes th, #DataManagerConfigPage .dm-passes td { padding: 6px 8px; text-align: center; border-top: 1px solid var(--dm-soft); }
+            #DataManagerConfigPage .dm-passes thead th { font-weight: 400; color: var(--dm-ink-3); border-top: 0; }
+            #DataManagerConfigPage .dm-passes th[scope="row"] { text-align: left; font-weight: 500; color: var(--dm-ink-2); padding-left: 0; }
+            #DataManagerConfigPage .dm-passes td { font-weight: 600; color: var(--dm-ink); }
+            #DataManagerConfigPage .dm-passes td small { display: block; font-weight: 400; color: var(--dm-ink-3); }
             #DataManagerConfigPage .dm-now { display: flex; align-items: center; gap: 10px; padding: 13px 20px; border-top: 1px solid var(--dm-soft); background: var(--dm-deep); font-size: 12.5px; line-height: 1.5; color: var(--dm-ink-2); }
             #DataManagerConfigPage .dm-now i { width: 8px; height: 8px; border-radius: 50%; background: var(--dm-ink-3); flex: none; }
             #DataManagerConfigPage .dm-now.dm-busy i { background: var(--dm-warning); }
@@ -347,6 +354,28 @@
                         + (n > rec ? ' More than that can slow each one down more than it helps.' : '');
                 }
 
+                // Times real time with the frames a second beneath, for each kind of run: the encoder on its own, then the film.
+                function speedCell(fps, rate) {
+                    if (!(fps > 0)) { return '<td></td>'; }
+                    var times = rate > 0 ? fps / rate : 0;
+                    var label = times >= 10 ? Math.round(times) : times.toFixed(1);
+                    return '<td title="' + Math.round(fps) + ' frames a second in total">' + (rate > 0 ? label + '&times;' : Math.round(fps)) + (rate > 0 ? '<small>' + Math.round(fps) + ' fps</small>' : '') + '</td>';
+                }
+
+                function passesTable(t) {
+                    var passes = (t.Passes || []).filter(function (p) { return p.Fps && p.Fps.length; });
+                    if (!passes.length) { return ''; }
+                    var rate = t.FilmFrameRate || 0;
+                    var head = '<tr><th scope="col"></th>';
+                    for (var i = 0; i < maxAtOnce; i++) { head += '<th scope="col">' + (i + 1) + ' at once</th>'; }
+                    var rows = passes.map(function (p) {
+                        var row = '<tr><th scope="row">' + escapeHtml(p.Label) + '</th>';
+                        for (var i = 0; i < maxAtOnce; i++) { row += speedCell(p.Fps[i], rate); }
+                        return row + '</tr>';
+                    }).join('');
+                    return '<table class="dm-passes"><caption>' + (rate > 0 ? 'Total speed, in times real time' : 'Total speed, in frames a second') + '</caption><thead>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>';
+                }
+
                 function renderTest() {
                     var box = $('#dmcTest');
                     if (!gpu) { box.innerHTML = ''; return; }
@@ -366,7 +395,7 @@
                     }
                     var canTest = gpu.Gpu.HardwareEncoding;
                     var head = t.State === 'Done' ? 'Speed test' : 'Test this GPU';
-                    var intro = running ? 'Encoding is paused while this runs, about two minutes.'
+                    var intro = running ? 'Encoding is paused while this runs, which takes a few minutes.'
                         : t.State === 'Done' ? 'Total encoding speed with one, two, three and four encodes at once, against one at a time.'
                         : (gpu.Gpu.TestHint || 'Times one to four encodes at once on a scene from your library.');
                     var message = t.Message || '';
@@ -375,6 +404,7 @@
                         : '<button type="button" class="dm-button' + (t.State === 'Done' ? '' : ' dm-primary') + '" id="dmcTestStart"' + (canTest ? '' : ' disabled') + '>' + (t.State === 'Done' || t.State === 'Failed' ? 'Test again' : 'Test this GPU') + '</button>';
                     box.innerHTML = '<div class="dm-test-head"><div class="dm-srow-tx"><b>' + head + '</b><span>' + escapeHtml(intro) + '</span></div>' + action + '</div>'
                         + (!running && !speeds.length ? '' : '<div class="dm-bars" aria-hidden="' + (speeds.length ? 'false' : 'true') + '">' + bars + '</div>')
+                        + passesTable(t)
                         + (message ? '<p class="dm-test-msg' + (t.State === 'Failed' ? ' dm-bad' : '') + '">' + escapeHtml(message) + '</p>' : '')
                         + (t.State === 'Done' && (t.Clip || t.TestedAt) ? '<p class="dm-test-sub">' + escapeHtml([t.Clip ? 'Encoded a scene of ' + t.Clip : '', t.TestedAt ? 'tested ' + dateText(t.TestedAt) : ''].filter(Boolean).join(', ')) + '</p>' : '')
                         + (running ? '<p class="dm-test-sub">' + escapeHtml(t.Clip ? 'Using ' + t.Clip : 'Choosing a scene') + '</p>' : '');
