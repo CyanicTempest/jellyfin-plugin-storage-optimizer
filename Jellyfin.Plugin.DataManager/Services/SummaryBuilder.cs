@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Jellyfin.Plugin.DataManager.Encoding;
 using Jellyfin.Plugin.DataManager.Models;
 using MediaBrowser.Controller.Library;
 
@@ -15,16 +16,19 @@ public class SummaryBuilder
 {
     private readonly ILibraryManager _libraryManager;
     private readonly ResolutionAnalyzer _resolutionAnalyzer;
+    private readonly EncodeService _encodeService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SummaryBuilder"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="resolutionAnalyzer">The saved detail checks.</param>
-    public SummaryBuilder(ILibraryManager libraryManager, ResolutionAnalyzer resolutionAnalyzer)
+    /// <param name="encodeService">The encode service, for what test encodes have measured.</param>
+    public SummaryBuilder(ILibraryManager libraryManager, ResolutionAnalyzer resolutionAnalyzer, EncodeService encodeService)
     {
         _libraryManager = libraryManager;
         _resolutionAnalyzer = resolutionAnalyzer;
+        _encodeService = encodeService;
     }
 
     /// <summary>
@@ -65,6 +69,7 @@ public class SummaryBuilder
             }
         }
 
+        _encodeService.ApplyTestedSavings(files);
         SuggestionRules.Apply(files);
         AddRange(summary.Files, files.OrderByDescending(f => f.EstimatedSavingsBytes).ThenByDescending(f => f.SizeBytes));
         return summary;

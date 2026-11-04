@@ -875,6 +875,46 @@ public sealed class EncodeService : IDisposable
     private string? PickEncoder(TargetCodec codec, out bool isHardware) => _hardware.PickEncoder(codec, out isHardware);
 
     /// <summary>
+    /// Applies test encodes of the default settings to the list's savings, so the list and the re-encode window show
+    /// the same number. Files of a size that hasn't been tested keep their rough estimate.
+    /// </summary>
+    /// <param name="files">The files to update.</param>
+    public void ApplyTestedSavings(IEnumerable<MediaFileInfo> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var encoder = PickEncoder(config.DefaultCodec, out _);
+        if (encoder is null)
+        {
+            return;
+        }
+
+        var scales = new Dictionary<string, double?>(StringComparer.Ordinal);
+        foreach (var file in files)
+        {
+            if (file.EstimatedSavingsBytes <= 0)
+            {
+                continue;
+            }
+
+            var key = SpeedEstimator.Key(encoder, config.DefaultEffort, config.DefaultQuality, (file.Width, file.Height), (file.Width, file.Height));
+            if (!scales.TryGetValue(key, out var scale))
+            {
+                scale = _speedEstimator.MeasuredVideoScale(key);
+                scales[key] = scale;
+            }
+
+            if (scale is { } measured)
+            {
+                var size = SavingsEstimator.EstimateSize(file, file.AudioBitrate, config.DefaultCodec, file.Width, file.Height, config.DefaultQuality, config.DefaultEffort, measured);
+                file.EstimatedSavingsBytes = Math.Max(file.SizeBytes - size, 0);
+                file.SavingsTested = true;
+            }
+        }
+    }
+
+    /// <summary>
     /// Works out how many encodes the settings allow at once, and what is being done about viewers.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>

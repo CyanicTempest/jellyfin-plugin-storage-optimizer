@@ -154,6 +154,7 @@ public sealed class ReportUpdater
         file.SubtitleTracks = tracks.Count(t => t.Kind == TrackKind.Subtitle);
         file.SubtitleLanguages = Names(TrackKind.Subtitle);
 
+        file.AudioBitrate = audioBitrate;
         file.EstimatedSavingsBytes = SavingsEstimator.Estimate(file, audioBitrate);
         file.OtherVersionIds = OtherVersions(item);
 

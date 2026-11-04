@@ -190,6 +190,20 @@ public sealed class SpeedEstimator : IDisposable
     }
 
     /// <summary>
+    /// Gets the correction to the rule-of-thumb video size from test encodes of exactly this setting.
+    /// </summary>
+    /// <param name="key">The key, from <see cref="Key"/>.</param>
+    /// <returns>The correction, or null if this setting hasn't been measured.</returns>
+    public double? MeasuredVideoScale(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        lock (_modelsLock)
+        {
+            return Models().TryGetValue(key, out var model) ? model.VideoScale : null;
+        }
+    }
+
+    /// <summary>
     /// Test-encodes a calm, a typical and a busy scene of a file, without touching the library, and saves how fast
     /// it went and how big the video came out.
     /// </summary>

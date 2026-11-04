@@ -32,7 +32,7 @@ public static class SavingsEstimator
             return 0;
         }
 
-        return Math.Max(file.SizeBytes - EstimateSize(file, audioBitrate, TargetCodec.Hevc, file.Width, file.Height), 0);
+        return Math.Max(file.SizeBytes - EstimateSize(file, audioBitrate, TargetCodec.Hevc, file.Width, file.Height, videoScale: RoughScale(file.VideoCodec)), 0);
     }
 
     /// <summary>
@@ -112,6 +112,11 @@ public static class SavingsEstimator
         ArgumentNullException.ThrowIfNull(codec);
         return CodecFactor(codec) ?? 1.25;
     }
+
+    // The list's estimate before any test encode. H.264 sources came out smaller than the rule of thumb in real
+    // encodes (62 to 66% smaller against 38 to 57% estimated), so the rough figure leans that way. Test-encode
+    // corrections are measured against the plain rule, so this stays out of them.
+    private static double RoughScale(string codec) => codec.ToUpperInvariant() is "H264" or "AVC" ? 0.8 : 1;
 
     // Bitrate compared with Balanced. Each step of an encoder's quality scale changes the bitrate by about a
     // sixth, so a quality level two steps up needs about a third more; grainy films change more than clean ones,

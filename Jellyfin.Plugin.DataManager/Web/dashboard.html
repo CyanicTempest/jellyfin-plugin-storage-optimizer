@@ -94,6 +94,7 @@
             #DataManagerDashboardPage .dm-tag.dm-tag-plain { background: var(--dm-raised); color: var(--dm-ink-2); }
             #DataManagerDashboardPage .dm-tag.dm-tag-suggested { background: var(--dm-tint); color: var(--dm-tint-ink); }
             #DataManagerDashboardPage button.dm-tag { cursor: pointer; }
+            #DataManagerDashboardPage .dm-tag.dm-tag-ok { background: var(--dm-ok-chip); color: var(--dm-ok); }
             #DataManagerDashboardPage button.dm-tag:hover { box-shadow: inset 0 0 0 1px var(--dm-accent-line); color: var(--dm-ink); }
             /* Checkboxes and radios, drawn to sit on these surfaces */
             #DataManagerDashboardPage .dm-select,
@@ -1663,10 +1664,11 @@
                 }
 
                 // What re-encoding could free. Suggested files are in the accent colour; the rest are only worth a look.
-                function savingCell(saving, size, suggested, note) {
+                // A saving is rough until test encodes have measured it, and says which it is.
+                function savingCell(saving, size, suggested, note, tested) {
                     if (!(saving > 0)) { return '<div class="dm-sv dm-none">' + escapeHtml(note || 'None') + '</div>'; }
-                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.toLowerCase()) + '"' : ' title="Not suggested: saves under 300 MB, or under a quarter of its size"') + '>−' + escapeHtml(formatBytes(saving))
-                        + '<small>' + (note ? escapeHtml(note) : Math.round(saving / size * 100) + '%') + '</small></div>';
+                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.toLowerCase()) + '"' : ' title="Not suggested: saves under 300 MB, or under a quarter of its size"') + '>' + (tested ? icon('check', 13) : 'about ') + escapeHtml(formatBytes(saving))
+                        + '<small>' + (note ? escapeHtml(note) : Math.round(saving / size * 100) + '%' + (tested ? ', from a test encode' : ', rough')) + '</small></div>';
                 }
 
                 function fileMeta(f) {
@@ -1704,17 +1706,18 @@
                         + lead
                         + '<div class="dm-main">' + title + '<div class="dm-meta">' + fileMeta(f) + '</div></div>'
                         + sizeCell(f.SizeBytes, f.EstimatedSavingsBytes, f.VideoCodec)
-                        + savingCell(f.EstimatedSavingsBytes, f.SizeBytes, f.IsRecommended && (f.SuggestedReason || true), f.EstimatedSavingsBytes > 0 ? '' : note) + '</div>';
+                        + savingCell(f.EstimatedSavingsBytes, f.SizeBytes, f.IsRecommended && (f.SuggestedReason || true), f.EstimatedSavingsBytes > 0 ? '' : note, f.SavingsTested) + '</div>';
                 }
 
                 // Totals for a series or season. Every version counts toward its size, and the main versions toward the rest.
                 function totals(titles) {
-                    var t = { size: 0, mainSize: 0, saving: 0, seconds: 0, bits: 0, suggested: 0, codecs: {}, resolutions: {}, hdr: false, lastPlayed: null, dateAdded: null };
+                    var t = { size: 0, mainSize: 0, saving: 0, tested: true, seconds: 0, bits: 0, suggested: 0, codecs: {}, resolutions: {}, hdr: false, lastPlayed: null, dateAdded: null };
                     titles.forEach(function (title) {
                         var m = title.main;
                         title.versions.forEach(function (v) { t.size += v.SizeBytes; });
                         t.mainSize += m.SizeBytes;
                         t.saving += m.EstimatedSavingsBytes;
+                        if (m.EstimatedSavingsBytes > 0 && !m.SavingsTested) { t.tested = false; }
                         t.seconds += m.DurationSeconds || 0;
                         t.bits += (m.Bitrate || 0) * (m.DurationSeconds || 0);
                         if (m.IsRecommended) {
@@ -1753,7 +1756,7 @@
                         + (resolutions.length === 1 ? ' · ' + escapeHtml(resolutions[0]) : '') + (t.hdr ? ' · HDR' : '') + '</span><span>' + contents + '</span>'
                         + (showWatched() ? '<span>' + escapeHtml(watchedLine(t.lastPlayed, t.dateAdded)) + '</span>' : '') + '</div></div>'
                         + sizeCell(t.size, t.saving, codecs[0])
-                        + savingCell(t.saving, t.mainSize, t.suggested > 0 && (t.reason || true)) + '</div>';
+                        + savingCell(t.saving, t.mainSize, t.suggested > 0 && (t.reason || true), '', t.tested) + '</div>';
                 }
 
                 function filterText() {
@@ -2860,6 +2863,20 @@
                     });
                 }
 
+                // Why the number differs from the list's, when these are the settings the list is worked out for.
+                function movedLine(estimate) {
+                    if (!estimate.SizeMeasured || !pluginConfig || scopeId || overrideCount()) { return ''; }
+                    var body = encodeBody();
+                    if (body.Codec !== pluginConfig.DefaultCodec || body.Quality !== pluginConfig.DefaultQuality || body.Effort !== pluginConfig.DefaultEffort) { return ''; }
+                    var files = selectedFiles();
+                    if (!files.some(function (f) { return !f.SavingsTested; })) { return ''; }
+                    testedThisTime = true;
+                    var listed = files.reduce(function (sum, f) { return sum + f.EstimatedSavingsBytes; }, 0);
+                    var saving = estimate.SourceBytes - estimate.OutputBytes;
+                    if (Math.abs(saving - listed) < estimate.SourceBytes * 0.03) { return ''; }
+                    return 'The list guessed about ' + formatBytes(listed) + '. Test encodes put it at about ' + formatBytes(saving) + ', and the list will show that from now on.';
+                }
+
                 function renderEstimate() {
                     renderLevels();
                     // The tracks are the same for every file, so they're only worked out for all of them.
@@ -2868,9 +2885,9 @@
                     renderRail();
                     var estimate = currentEstimate();
                     if (!estimate) { return; }
-                    var parts = [estimate.SizeMeasured
+                    var parts = [movedLine(estimate) || (estimate.SizeMeasured
                         ? 'Sizes come from test encodes of these settings.'
-                        : 'Sizes are a rule of thumb until these settings are test-encoded' + (estimate.IsHardware ? '.' : ', which happens with the timing.')];
+                        : 'Sizes are a rule of thumb until these settings are test-encoded' + (estimate.IsHardware ? '.' : ', which happens with the timing.'))];
                     if (estimate.FilesToAnalyse) {
                         parts.push(plural(estimate.FilesToAnalyse, 'file') + ' will be checked for detail before encoding, so this assumes ' + (estimate.FilesToAnalyse === 1 ? 'it keeps its' : 'they keep their') + ' size.');
                     }
@@ -2881,7 +2898,7 @@
                 function renderFooter() {
                     var estimate = totalEstimate();
                     if (!estimate) { return; }
-                    $('#dmResult').innerHTML = resultHtml(estimate.SourceBytes, estimate.OutputBytes, whenText(estimate, totalTime()));
+                    $('#dmResult').innerHTML = resultHtml(estimate.SourceBytes, estimate.OutputBytes, whenText(estimate, totalTime()), estimate.SizeMeasured);
                     $('#dmResult').classList.remove('dm-hidden');
                     $('#dmEstimate').textContent = '';
                 }
@@ -2897,10 +2914,13 @@
                 }
 
                 // "1.2 TB to 664 GB", what that saves, and how long it takes when that's known.
-                function resultHtml(source, output, when) {
+                // Tested says whether test encodes measured the size. Remux leaves it out, as its size is simple sums.
+                function resultHtml(source, output, when, tested) {
                     var saving = source - output;
-                    return '<div class="dm-result-big">' + escapeHtml(formatBytes(source)) + ' <span class="dm-to">to</span> ' + escapeHtml(formatBytes(output)) + '</div>'
-                        + '<div class="dm-result-save">' + (saving > 0 && source ? 'Saves ' + escapeHtml(formatBytes(saving)) + ', ' + Math.round(saving / source * 100) + '%' : 'No smaller than the originals') + '</div>'
+                    var estimated = tested !== undefined;
+                    return '<div class="dm-result-big">' + escapeHtml(formatBytes(source)) + ' <span class="dm-to">to</span> ' + (estimated && !tested ? '~' : '') + escapeHtml(formatBytes(output)) + '</div>'
+                        + '<div class="dm-result-save">' + (saving > 0 && source ? 'Saves ' + (estimated ? 'about ' : '') + escapeHtml(formatBytes(saving)) + ', ' + Math.round(saving / source * 100) + '%' : 'No smaller than the originals') + '</div>'
+                        + (estimated ? '<span class="dm-tag' + (tested ? ' dm-tag-ok' : '') + '" title="' + (tested ? 'Measured from short test encodes of these settings' : 'A rough estimate until these settings are test-encoded') + '">' + (tested ? 'From a test encode' : 'Rough') + '</span>' : '')
                         + (when ? '<div class="dm-result-when">' + icon('clock') + escapeHtml(when) + '</div>' : '');
                 }
 
@@ -2938,6 +2958,7 @@
                 }
 
                 var codecNoteOpen = false;
+                var testedThisTime = false;
                 var modeSpace = { enough: true, note: '' };
 
                 function renderModeHint() {
@@ -3476,6 +3497,11 @@
 
                 function closeDialog() {
                     stopDetail();
+                    // What the tests measured goes into the list.
+                    if (testedThisTime) {
+                        testedThisTime = false;
+                        load();
+                    }
                     $('#dmDialog').classList.add('dm-hidden');
                     scopeId = null;
                     $('#dmEncodeDialog').classList.remove('dm-scope-file', 'dm-rail-open');
@@ -5172,7 +5198,7 @@
                     if (j.State === 'Running' || j.State === 'Paused') {
                         middle = progressHtml(j.Progress, j.State === 'Paused') + '<div class="dm-job-status">' + escapeHtml(jobStatus(j)) + '</div></div>';
                     } else if (finished) {
-                        middle = '<div class="dm-job-result"><span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Done</span>' + afterDone + '<span>' + escapeHtml(sizeChange(j.SourceBytes, j.OutputBytes))
+                        middle = '<div class="dm-job-result"><span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Done</span>' + afterDone + '<span>' + escapeHtml(sizeChange(j.SourceBytes, j.OutputBytes)) + ', final'
                             + (j.Message ? '. ' + escapeHtml(j.Message) : '') + '</span></div>';
                     } else {
                         middle = '<div class="dm-job-status dm-first ' + (j.State === 'Failed' ? 'dm-failed' : j.State === 'NeedsDecision' ? 'dm-attention' : '') + '">' + escapeHtml(jobStatus(j)) + '</div>';

@@ -63,6 +63,16 @@ public class MediaFileInfo
     /// <summary>Gets or sets the estimated bytes saved by re-encoding to HEVC.</summary>
     public long EstimatedSavingsBytes { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether <see cref="EstimatedSavingsBytes"/> comes from test encodes, rather than a rough estimate.
+    /// </summary>
+    public bool SavingsTested { get; set; }
+
+    /// <summary>
+    /// Gets or sets the combined audio bitrate in bits per second, or 0 if unknown.
+    /// </summary>
+    public long AudioBitrate { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the file is worth re-encoding, under the current settings.</summary>
     public bool IsRecommended { get; set; }
 
