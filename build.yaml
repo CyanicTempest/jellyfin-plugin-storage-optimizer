@@ -1,7 +1,7 @@
 ---
 name: "Storage Optimizer"
 guid: "058486e8-6ec1-4313-b336-a2f160d50fac"
-version: "0.1.1.0"
+version: "0.1.1.1"
 targetAbi: "12.3.0.0"
 framework: "net10.0"
 overview: "See where your library storage goes and re-encode to save space"
@@ -15,8 +15,8 @@ owner: "CyanicTempest"
 artifacts:
 - "Jellyfin.Plugin.DataManager.dll"
 changelog: >
-  Faster dashboard on big libraries. A kept re-encode shows straight away with
-  Compare, no rescan needed. A season's encodes show as one row that opens to
-  each episode. New Accept smaller files window to keep re-encodes and delete
-  their originals in bulk, and Duplicates now keeps a smaller re-encode. The
-  GPU speed test gives repeatable results.
+  The GPU speed test now shows what limits the speed, with the encoder alone
+  beside your film, whether the film decoded on the GPU, and speeds in times
+  real time. New Keep frames on the GPU setting for NVIDIA cards, off until you
+  turn it on. Check detail stops when you close the re-encode window and runs
+  faster. New Clear queue button for the encoding list.
