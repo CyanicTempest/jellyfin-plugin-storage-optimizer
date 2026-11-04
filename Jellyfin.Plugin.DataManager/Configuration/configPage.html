@@ -190,7 +190,8 @@
                     <a id="dmcBack" class="dm-button" href="#/configurationpage?name=DataManager"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>Back to Storage Optimizer</a>
                 </header>
                 <section class="dm-card" aria-labelledby="dmcParallelTitle">
-                    <div class="dm-sh dm-tight"><h2 id="dmcParallelTitle" class="dm-h2">Encoding at the same time</h2></div>
+                    <div class="dm-sh dm-tight"><h2 id="dmcParallelTitle" class="dm-h2">Speed and hardware</h2></div>
+                    <div class="dm-infoln dm-warn dm-hidden" id="dmcDecodeWarn" role="status"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><p></p></div>
                     <div class="dm-gpu" id="dmcGpu"></div>
                     <div class="dm-srow">
                         <div class="dm-srow-tx"><b id="dmcAtOnceLabel">Encodes at once</b><span id="dmcAtOnceNote">Reading your GPU.</span></div>
@@ -205,7 +206,6 @@
                         <div class="dm-srow-tx"><b id="dmcKeepFramesLabel">Keep frames on the GPU</b><span id="dmcKeepFramesNote"></span></div>
                         <button type="button" id="dmcKeepFrames" class="dm-switch" role="switch" aria-checked="false" aria-labelledby="dmcKeepFramesLabel"></button>
                     </label>
-                    <div class="dm-infoln dm-warn dm-hidden" id="dmcDecodeWarn" role="status"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><p></p></div>
                     <div class="dm-infoln dm-hidden" id="dmcGpuNote"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p></p></div>
                 </section>
 
@@ -416,6 +416,11 @@
                     var box = $('#dmcTest');
                     if (!gpu) { box.innerHTML = ''; return; }
                     var t = gpu.Test || { State: 'Idle', Speeds: [] };
+                    // Without hardware encoding there's nothing to test, so a line says how to get there instead of a button that can't work.
+                    if (!gpu.Gpu.HardwareEncoding && t.State !== 'Done') {
+                        box.innerHTML = '<p class="dm-test-sub">' + escapeHtml(gpu.Gpu.TestHint || 'Turn on hardware encoding in Jellyfin\'s Playback settings to use a GPU here.') + '</p>';
+                        return;
+                    }
                     var running = t.State === 'Running';
                     var speeds = t.Speeds || [];
                     var best = Math.max.apply(null, speeds.concat([1]));
@@ -451,9 +456,15 @@
                     var nvidia = !!gpu && gpu.Gpu.Acceleration === 'NVENC' && gpu.Gpu.HardwareEncoding;
                     $('#dmcKeepFramesRow').classList.toggle('dm-hidden', !nvidia);
                     if (!nvidia || !current) { return; }
-                    var onGpu = gpu.Test && (gpu.Test.Passes || []).some(function (p) { return p.Name === 'OnGpu'; });
+                    var passes = (gpu.Test && gpu.Test.Passes) || [];
+                    var onGpu = passes.filter(function (p) { return p.Name === 'OnGpu'; })[0];
+                    var film = passes.filter(function (p) { return p.Name === 'Film'; })[0];
+                    var best = function (p) { return Math.max.apply(null, p.Fps); };
+                    var gain = onGpu && film && onGpu.Fps.length && film.Fps.length ? Math.round((best(onGpu) / best(film) - 1) * 100) : null;
                     $('#dmcKeepFramesNote').textContent = 'Frames the GPU decodes stay on it until they\'re encoded, instead of being copied to memory and back. It only applies to encodes that keep the film\'s size and colours, and a file it can\'t be done for is encoded the usual way. '
-                        + (onGpu ? 'See the speed test above for whether it helps on your card.' : 'Run the speed test to see whether it helps on your card.');
+                        + (gain === null ? 'Run the speed test to see whether it helps on your card.'
+                            : gain >= 5 ? 'This was ' + gain + '% faster in your speed test, so it\'s worth turning on.'
+                                : 'It made little difference in your speed test, so it can stay off.');
                     $('#dmcKeepFrames').setAttribute('aria-checked', current.KeepFramesOnGpu ? 'true' : 'false');
                 }
 
@@ -533,10 +544,10 @@
 
                 // ----- file naming examples -----
                 var examples = [
-                    { label: 'Movie', parts: { Title: 'Big Buck Bunny', Year: '2008', ImdbId: 'tt1254207', TmdbId: '10378', Resolution: '1080p', Codec: 'HEVC' } },
-                    { label: 'Movie with no year', parts: { Title: 'Family Trip', Resolution: '1080p', Codec: 'HEVC' } },
-                    { label: 'Episode', episode: true, parts: { Title: 'Pilot', Year: '2020', Series: 'Example Show', SeriesYear: '2020', Season: '01', Episode: '01', TvdbId: '12345', Resolution: '1080p', Codec: 'HEVC' } },
-                    { label: 'Two episodes in one file', episode: true, parts: { Title: 'The Weekend', Series: 'Example Show', SeriesYear: '2020', Season: '01', Episode: '01-E02', Resolution: '1080p', Codec: 'HEVC' } }
+                    { label: 'Movie', keeps: 'Example Film (2008)', parts: { Title: 'Big Buck Bunny', Year: '2008', ImdbId: 'tt1254207', TmdbId: '10378', Resolution: '1080p', Codec: 'HEVC' } },
+                    { label: 'Movie with no year', keeps: 'Family Trip', parts: { Title: 'Family Trip', Resolution: '1080p', Codec: 'HEVC' } },
+                    { label: 'Episode', keeps: 'Example Show S01E01', episode: true, parts: { Title: 'Pilot', Year: '2020', Series: 'Example Show', SeriesYear: '2020', Season: '01', Episode: '01', TvdbId: '12345', Resolution: '1080p', Codec: 'HEVC' } },
+                    { label: 'Two episodes in one file', keeps: 'Example Show S01E01-E02', episode: true, parts: { Title: 'The Weekend', Series: 'Example Show', SeriesYear: '2020', Season: '01', Episode: '01-E02', Resolution: '1080p', Codec: 'HEVC' } }
                 ];
                 var tokens = ['Title', 'Year', 'Series', 'SeriesYear', 'Season', 'Episode', 'ImdbId', 'TmdbId', 'TvdbId', 'Resolution', 'Codec'];
 
@@ -613,9 +624,8 @@
                     var episode = naming === 'Custom' ? current.EpisodeNameTemplate : jellyfinEpisode;
                     var bad = naming === 'Custom' ? unknownTokens(movie).concat(unknownTokens(episode)) : [];
                     $('#dmcExamples').innerHTML = (bad.length ? '<div class="dm-bad"><span>Check the pattern</span><span>Not something it can fill in: ' + bad.map(escapeHtml).join(', ') + '</span></div>' : '') + examples.map(function (e) {
-                        var currentName = e.episode ? 'Example Show S01E01' : 'Example Film (2008)';
                         var name = naming === 'KeepCurrent' ? null : expand(e.episode ? episode : movie, e.parts);
-                        return '<div><span>' + escapeHtml(e.label) + '</span><code>' + escapeHtml((name || currentName) + '.mkv') + (name ? '' : ' <span class="dm-keeps">(keeps its name)</span>') + '</code></div>';
+                        return '<div><span>' + escapeHtml(e.label) + '</span><code>' + escapeHtml((name || e.keeps) + '.mkv') + (name ? '' : ' <span class="dm-keeps">(keeps its name)</span>') + '</code></div>';
                     }).join('');
                 }
 
