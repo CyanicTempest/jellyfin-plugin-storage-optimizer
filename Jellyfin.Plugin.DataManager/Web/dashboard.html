@@ -661,6 +661,7 @@
                         <div class="dm-jobs-head">
                             <h2 class="dm-h2">Encoding</h2>
                             <span id="dmJobCounts" class="dm-tools"></span>
+                            <button type="button" id="dmClearQueue" class="dm-small-button dm-quiet dm-hidden" title="Remove what's waiting, and failed or cancelled jobs. Encoding, paused and finished encodes stay.">Clear queue</button>
                         </div>
                         <div id="dmJobsNow" class="dm-jobs-now dm-hidden" role="status"><i></i><span></span></div>
                         <div id="dmJobs"></div>
@@ -5021,6 +5022,7 @@
                     var paused = jobs.filter(function (j) { return j.State === 'Paused'; }).length;
                     var attention = jobs.filter(function (j) { return j.State === 'NeedsDecision' || j.State === 'Failed'; }).length;
                     var slots = lastStatus && lastStatus.Slots > 1 ? lastStatus.Slots : 0;
+                    $('#dmClearQueue').classList.toggle('dm-hidden', !jobs.some(function (j) { return j.State === 'Queued' || j.State === 'Failed' || j.State === 'Cancelled'; }));
                     $('#dmJobCounts').innerHTML = (running ? '<span class="dm-chip dm-chip-acc">' + running + ' running</span>' : '')
                         + (paused ? '<span class="dm-chip dm-chip-warn">' + paused + ' paused</span>' : '')
                         + (waiting ? '<span class="dm-chip">' + waiting + ' waiting</span>' : '')
@@ -5157,6 +5159,27 @@
                             + middle + '<div class="dm-job-actions">' + actions + '</div></div>'
                             + (open ? '<div class="dm-job-episodes">' + jobs.map(function (j) { return jobHtml(j, true); }).join('') + '</div>' : '') + '</div>'
                     };
+                }
+
+                // Removes what isn't encoding. Nothing is deleted from the disk: waiting jobs haven't started, and a failed or
+                // cancelled one left nothing behind. Finished encodes, including finished episodes of a season, stay.
+                function confirmClearQueue() {
+                    var jobs = lastJobs || [];
+                    var waiting = jobs.filter(function (j) { return j.State === 'Queued'; }).length;
+                    var finished = jobs.filter(function (j) { return j.State === 'Failed' || j.State === 'Cancelled'; }).length;
+                    if (!waiting && !finished) { return; }
+                    var parts = [];
+                    if (waiting) { parts.push(plural(waiting, 'waiting encode') + ' ' + (waiting === 1 ? 'is' : 'are') + ' taken off the queue'); }
+                    if (finished) { parts.push(plural(finished, 'failed or cancelled job') + ' ' + (finished === 1 ? 'is' : 'are') + ' cleared from the list'); }
+                    openConfirm({
+                        title: 'Clear the queue?',
+                        body: '<p class="dm-confirm-note">' + escapeHtml(parts.join(', and ')) + '. Anything encoding or paused carries on, and finished encodes stay, including finished episodes inside a season. No files are changed, and you can queue them again whenever you like.</p>',
+                        ok: 'Clear queue',
+                        danger: false,
+                        action: function () {
+                            return postJson('DataManager/Encode/Jobs/Clear', {}).then(loadJobs);
+                        }
+                    });
                 }
 
                 function cancelSeason(key) {
@@ -5419,6 +5442,7 @@
                 $('#dmTimeline').addEventListener('input', function () { $('#dmTimeNow').textContent = formatClock(Number($('#dmTimeline').value)); });
                 $('#dmTimeline').addEventListener('change', loadFrames);
 
+                $('#dmClearQueue').addEventListener('click', confirmClearQueue);
                 $('#dmSmallerOpen').addEventListener('click', openSmaller);
                 $('#dmSmallerClose').addEventListener('click', closeSmaller);
                 $('#dmSmallerAccept').addEventListener('click', confirmAccept);

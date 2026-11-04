@@ -308,6 +308,14 @@ public class DataManagerController : ControllerBase
     public ActionResult CancelJob([FromRoute] Guid jobId) => _encodeService.Cancel(jobId) ? NoContent() : NotFound();
 
     /// <summary>
+    /// Clears the queue of jobs that aren't encoding: those waiting, and those that failed or were cancelled. Running, paused and finished encodes stay.
+    /// </summary>
+    /// <returns>How many were removed.</returns>
+    [HttpPost("Encode/Jobs/Clear")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<ClearResult> ClearJobs() => Ok(_encodeService.ClearQueue());
+
+    /// <summary>
     /// Gets how many encodes are running, paused and waiting, and who is watching.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>

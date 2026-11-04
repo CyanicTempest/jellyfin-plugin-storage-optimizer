@@ -265,6 +265,43 @@ public sealed class EncodeService : IDisposable
     }
 
     /// <summary>
+    /// Clears the queue of what isn't encoding: jobs still waiting, and jobs that failed or were cancelled. Encodes that
+    /// are running or paused, finished ones, and ones waiting for the user to choose are left alone.
+    /// </summary>
+    /// <returns>How many waiting jobs, and how many failed or cancelled ones, were removed.</returns>
+    public ClearResult ClearQueue()
+    {
+        List<EncodeJob> removed;
+        lock (_jobsLock)
+        {
+            // A waiting job is made cancelled in the same lock that starting one takes, so one can't start as it's cleared.
+            removed = _jobs.Where(j => j.State is EncodeJobState.Queued or EncodeJobState.Failed or EncodeJobState.Cancelled).ToList();
+            foreach (var job in removed)
+            {
+                if (job.State == EncodeJobState.Queued)
+                {
+                    job.State = EncodeJobState.Cancelled;
+                    job.Message = "Removed from the queue.";
+                    job.FinishedAt = DateTime.UtcNow;
+                }
+
+                _jobs.Remove(job);
+            }
+        }
+
+        foreach (var job in removed)
+        {
+            job.Cancellation.Cancel();
+            job.Cancellation.Dispose();
+        }
+
+        var result = new ClearResult(removed.Count(j => j.Message == "Removed from the queue."), removed.Count(j => j.Message != "Removed from the queue."));
+        _logger.LogInformation("Storage Optimizer cleared its queue: {Waiting} waiting and {Finished} failed or cancelled jobs removed", result.Waiting, result.Finished);
+        Wake();
+        return result;
+    }
+
+    /// <summary>
     /// Estimates the size of the new files and how long encoding them will take, for the chosen settings and for
     /// each other quality and effort, so the choices can be weighed against each other.
     /// </summary>

@@ -264,6 +264,13 @@ public class EncodePreviewRequest
 }
 
 /// <summary>
+/// What clearing the queue removed.
+/// </summary>
+/// <param name="Waiting">How many jobs were still waiting to start.</param>
+/// <param name="Finished">How many failed or cancelled jobs were cleared from the list.</param>
+public sealed record ClearResult(int Waiting, int Finished);
+
+/// <summary>
 /// One re-encode job.
 /// </summary>
 public class EncodeJob
