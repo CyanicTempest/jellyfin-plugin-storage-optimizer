@@ -58,4 +58,7 @@ public class StorageSummary
 
     /// <summary>Gets every file, largest estimated saving first.</summary>
     public IList<MediaFileInfo> Files { get; init; } = [];
+
+    /// <summary>Gets the re-encodes kept beside their originals that came out smaller and are waiting for the user.</summary>
+    public IList<Services.SmallerFile> SmallerFiles { get; init; } = [];
 }

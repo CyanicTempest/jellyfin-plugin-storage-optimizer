@@ -76,6 +76,13 @@ public class DataManagerController : ControllerBase
         var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
         var summary = _summaryBuilder.Build(report);
         _watchHistory.Apply(summary.Files);
+        var kept = await SmallerFiles.KeptAsync(cancellationToken).ConfigureAwait(false);
+        var paths = summary.Files.ToDictionary(f => f.ItemId, f => f.Path, StringComparer.OrdinalIgnoreCase);
+        foreach (var file in SmallerFiles.Find(report).Where(f => !kept.Contains(paths[f.OutputId])))
+        {
+            summary.SmallerFiles.Add(file);
+        }
+
         return Ok(summary);
     }
 
@@ -368,6 +375,40 @@ public class DataManagerController : ControllerBase
     {
         var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
         return Ok(DuplicateFinder.Find(report));
+    }
+
+    /// <summary>
+    /// Accepts smaller re-encodes the user confirmed: each original is deleted, and the files beside it move to the new file's name.
+    /// </summary>
+    /// <param name="request">The re-encodes.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>What was deleted, and what couldn't be.</returns>
+    [HttpPost("Encode/Smaller/Accept")]
+    [Consumes(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeleteResult>> AcceptSmaller([FromBody] DeleteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Ok(await _mediaDeleter.AcceptAsync(request.ItemIds, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Keeps re-encodes beside their originals, so they aren't offered again. Nothing is deleted.
+    /// </summary>
+    /// <param name="request">The re-encodes.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("Encode/Smaller/KeepBoth")]
+    [Consumes(MediaTypeNames.Application.Json)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<ActionResult> KeepBoth([FromBody] DeleteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var ids = request.ItemIds.Select(id => id.ToString("N", System.Globalization.CultureInfo.InvariantCulture)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var paths = report?.Files.Where(f => ids.Contains(f.ItemId)).Select(f => f.Path) ?? [];
+        await SmallerFiles.KeepAsync(paths, cancellationToken).ConfigureAwait(false);
+        return NoContent();
     }
 
     /// <summary>

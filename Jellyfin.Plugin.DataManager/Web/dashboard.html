@@ -465,6 +465,7 @@
             #DataManagerDashboardPage .dm-status-tile span { font-size: 12px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-lo { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--dm-soft); }
             #DataManagerDashboardPage .dm-lo.dm-selected { background: var(--dm-tint); }
+            #DataManagerDashboardPage .dm-lo-group { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-top: 1px solid var(--dm-soft); background: var(--dm-deep); font-size: 13px; cursor: pointer; }
             #DataManagerDashboardPage .dm-lo-name { font-family: var(--dm-mono); font-size: 12.5px; overflow-wrap: anywhere; }
             #DataManagerDashboardPage .dm-extras-line { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 12px 14px; border: 1px dashed var(--dm-line); border-radius: 10px; font-size: 13px; color: var(--dm-ink-2); }
             #DataManagerDashboardPage .dm-extras-line:empty { display: none; }
@@ -669,6 +670,11 @@
                 <section class="dm-stack" style="gap: 14px" aria-labelledby="dmCleanupHeading">
                     <h2 id="dmCleanupHeading" class="dm-h2">Clean up</h2>
                     <div class="dm-tiles">
+                        <div class="dm-card dm-tile">
+                            <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
+                            <div class="dm-tile-b"><span id="dmSmallerNumber" class="dm-tile-n">-</span><span id="dmSmallerCard" class="dm-tile-l">Re-encodes you kept beside the original show here once they're smaller.</span></div>
+                            <button type="button" id="dmSmallerOpen" class="dm-button" disabled>Review</button>
+                        </div>
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></div>
                             <div class="dm-tile-b"><span id="dmDupNumber" class="dm-tile-n">…</span><span id="dmDupCard" class="dm-tile-l">Scan your libraries to look for duplicates.</span></div>
@@ -957,6 +963,33 @@
                             <span class="dm-result-text" id="dmDupFoot"></span>
                             <div class="dm-df-r">
                                 <button type="button" id="dmDupDelete" class="dm-button dm-danger" disabled>Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dmSmallerDialog" class="dm-overlay dm-hidden">
+                    <div class="dm-dialog dm-wide" role="dialog" aria-modal="true" aria-labelledby="dmSmallerHeading">
+                        <div class="dm-dh">
+                            <div class="dm-dh-l">
+                                <h3 id="dmSmallerHeading">Smaller files are ready</h3>
+                                <span id="dmSmallerChips" class="dm-tools"></span>
+                            </div>
+                            <button type="button" id="dmSmallerClose" class="dm-button dm-quiet dm-icon" aria-label="Close"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                        </div>
+                        <div class="dm-db">
+                            <p class="dm-lead">These re-encodes came out smaller and their originals are still here. Accepting one keeps the new file and deletes the original. Nothing is deleted until you confirm.</p>
+                            <div class="dm-list-tools">
+                                <button type="button" id="dmSmallerAll" class="dm-small-button">Select all</button>
+                                <button type="button" id="dmSmallerNone" class="dm-small-button">Deselect all</button>
+                            </div>
+                            <div id="dmSmallerList"></div>
+                        </div>
+                        <div class="dm-df">
+                            <span class="dm-result-text" id="dmSmallerFoot"></span>
+                            <div class="dm-df-r">
+                                <button type="button" id="dmSmallerKeep" class="dm-button" title="Keep both files, and don't ask about these again">Keep both</button>
+                                <button type="button" id="dmSmallerAccept" class="dm-button dm-primary" disabled>Accept smaller files</button>
                             </div>
                         </div>
                     </div>
@@ -1997,6 +2030,7 @@
                     renderMedia(true);
                     renderJobs(lastJobs);
                     renderExtrasLine();
+                    renderSmallerCard();
                 }
 
                 // Only the first load covers the page. After that the old numbers stay up until the new ones arrive.
@@ -3814,6 +3848,120 @@
                         + '. They\'re never deleted by themselves.</span><button type="button" id="dmSelectExtras" class="dm-small-button">Select them in the media list</button>';
                 }
 
+                // ----- Smaller files: re-encodes kept beside their originals, for the user to accept in bulk.
+                var smallerPicked = {};
+
+                // Each re-encode that's waiting, with both of its files, biggest saving first.
+                function smallerPairs() {
+                    return ((summary && summary.SmallerFiles) || []).map(function (p) {
+                        return { original: filesById[p.OriginalId], output: filesById[p.OutputId] };
+                    }).filter(function (p) { return p.original && p.output; }).sort(function (a, b) {
+                        return (b.original.SizeBytes - b.output.SizeBytes) - (a.original.SizeBytes - a.output.SizeBytes);
+                    });
+                }
+
+                function renderSmallerCard() {
+                    var pairs = smallerPairs();
+                    var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
+                    $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(freed) : '-';
+                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 'smaller file') + ' ready to accept' : 'Re-encodes you kept beside the original show here once they\'re smaller.';
+                    $('#dmSmallerOpen').disabled = !pairs.length;
+                    if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) {
+                        if (pairs.length) { renderSmallerList(); } else { closeSmaller(); }
+                    }
+                }
+
+                function openSmaller() {
+                    smallerPicked = {};
+                    smallerPairs().forEach(function (p) { smallerPicked[p.output.ItemId] = true; });
+                    renderSmallerList();
+                    $('#dmSmallerDialog').classList.remove('dm-hidden');
+                    $('#dmSmallerClose').focus();
+                }
+
+                function closeSmaller() {
+                    $('#dmSmallerDialog').classList.add('dm-hidden');
+                }
+
+                // Episodes sit under their season, so a whole season can be read and ticked at a glance.
+                function renderSmallerList() {
+                    var groups = [];
+                    var bySeason = {};
+                    smallerPairs().forEach(function (p) {
+                        var f = p.original;
+                        var key = isEpisode(f) ? (f.SeriesId || f.SeriesName) + '|' + f.SeasonNumber : '';
+                        var group = bySeason[key];
+                        if (!group) {
+                            group = bySeason[key] = { label: isEpisode(f) ? f.SeriesName + ', ' + seasonLabel(f) : '', pairs: [] };
+                            groups.push(group);
+                        }
+                        group.pairs.push(p);
+                    });
+                    $('#dmSmallerList').innerHTML = groups.map(function (group) {
+                        if (group.label) { group.pairs.sort(function (a, b) { return (a.original.EpisodeNumber || 0) - (b.original.EpisodeNumber || 0); }); }
+                        var ids = group.pairs.map(function (p) { return p.output.ItemId; });
+                        var picked = ids.filter(function (id) { return smallerPicked[id]; }).length;
+                        var head = group.label
+                            ? '<label class="dm-lo-group"><input type="checkbox" class="dm-smaller-season" data-ids="' + ids.join(',') + '"' + (picked === ids.length ? ' checked' : '') + ' /><b>' + escapeHtml(group.label) + '</b></label>'
+                            : '';
+                        return head + group.pairs.map(function (p) {
+                            var id = p.output.ItemId;
+                            return '<div class="dm-lo' + (smallerPicked[id] ? ' dm-selected' : '') + '">'
+                                + '<input type="checkbox" class="dm-smaller-pick" data-id="' + id + '"' + (smallerPicked[id] ? ' checked' : '') + ' aria-label="Accept ' + escapeHtml(titleOf(p.original)) + '" />'
+                                + '<div><div class="dm-job-title">' + escapeHtml(titleOf(p.original)) + '</div><div class="dm-job-meta" title="' + escapeHtml(p.output.Path) + '">' + escapeHtml(codecLabel(p.original.VideoCodec) + ' to ' + codecLabel(p.output.VideoCodec) + ' · ' + sizeChange(p.original.SizeBytes, p.output.SizeBytes)) + '</div></div>'
+                                + '<button type="button" class="dm-small-button dm-compare" data-id="' + p.original.ItemId + '" data-other="' + id + '">' + icon('compare') + 'Compare</button></div>';
+                        }).join('');
+                    }).join('');
+                    updateSmallerFoot();
+                }
+
+                function pickedPairs() {
+                    return smallerPairs().filter(function (p) { return smallerPicked[p.output.ItemId]; });
+                }
+
+                function updateSmallerFoot() {
+                    var pairs = pickedPairs();
+                    var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
+                    $('#dmSmallerChips').innerHTML = '<span class="dm-chip">' + plural(smallerPairs().length, 'file') + '</span>';
+                    $('#dmSmallerFoot').textContent = pairs.length ? plural(pairs.length, 'file') + ' selected, frees ' + formatBytes(freed) : 'Nothing selected';
+                    $('#dmSmallerAccept').disabled = !pairs.length;
+                    $('#dmSmallerKeep').disabled = !pairs.length;
+                    $('#dmSmallerAccept').textContent = pairs.length ? 'Accept ' + plural(pairs.length, 'smaller file') : 'Accept smaller files';
+                }
+
+                // Deleting an original can't be undone, so this says exactly which files go.
+                function confirmAccept() {
+                    var pairs = pickedPairs();
+                    if (!pairs.length) { return; }
+                    var bytes = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0);
+                    var freed = pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes - p.output.SizeBytes; }, 0);
+                    openConfirm({
+                        title: 'Delete ' + plural(pairs.length, 'original') + '?',
+                        body: '<p class="dm-confirm-note">' + (pairs.length === 1 ? 'This original is' : 'These originals are') + ' deleted from the disk and ' + formatBytes(bytes) + ' goes with ' + (pairs.length === 1 ? 'it' : 'them')
+                            + '. The smaller files stay, which leaves ' + formatBytes(freed) + ' more free. This can\'t be undone.</p>'
+                            + fileList(pairs.map(function (p) { return { name: titleOf(p.original), detail: p.original.Path, size: p.original.SizeBytes }; }))
+                            + '<p class="dm-confirm-note dm-muted">Subtitles, artwork and .nfo files beside an original move to the new file\'s name.</p>',
+                        ok: 'Delete ' + plural(pairs.length, 'original') + ', frees ' + formatBytes(freed),
+                        action: function () {
+                            return postJson('DataManager/Encode/Smaller/Accept', { ItemIds: pairs.map(function (p) { return dashedGuid(p.output.ItemId); }) }).then(function (result) {
+                                showMediaNotice(deleteSummary(result, 'original'), result.Failed && result.Failed.length && !result.DeletedFiles);
+                                return load();
+                            });
+                        }
+                    });
+                }
+
+                function keepBoth() {
+                    var pairs = pickedPairs();
+                    if (!pairs.length) { return; }
+                    postJson('DataManager/Encode/Smaller/KeepBoth', { ItemIds: pairs.map(function (p) { return dashedGuid(p.output.ItemId); }) }).then(function () {
+                        closeSmaller();
+                        return load();
+                    }, function () {
+                        $('#dmSmallerFoot').textContent = 'That didn\'t work. Check the Jellyfin log, then try again.';
+                    });
+                }
+
                 // A new file that came out no smaller waits for the user, who picks which file to delete.
                 function confirmDecision(jobId, useNewFile) {
                     var job = (lastJobs || []).filter(function (j) { return j.Id === jobId; })[0];
@@ -5015,7 +5163,13 @@
                             else if (activeJobIds[j.Id]) { delete activeJobIds[j.Id]; if (j.State === 'Completed') { anyJustFinished = true; } }
                         });
                         // The server puts each finished file in the report, so the new numbers only need fetching.
-                        if (anyJustFinished) { load(); }
+                        // When the last one lands, the smaller files are offered, unless the user is busy in a window.
+                        if (anyJustFinished) {
+                            load().then(function () {
+                                var busy = page.querySelector('.dm-overlay:not(.dm-hidden)');
+                                if (!anyActive && !busy && smallerPairs().length) { openSmaller(); }
+                            });
+                        }
                         // A hidden tab has nobody to show progress to, so it only checks in now and then.
                         if (anyActive) { jobTimer = setTimeout(loadJobs, document.hidden ? 20000 : 2000); }
                     });
@@ -5137,7 +5291,7 @@
                     if (e.key !== 'Escape') { return; }
                     if (!$('#dmConfirmDialog').classList.contains('dm-hidden')) { closeConfirm(); return; }
                     if ($('#dmEncodeDialog').classList.contains('dm-rail-open') && !$('#dmDialog').classList.contains('dm-hidden')) { $('#dmEncodeDialog').classList.remove('dm-rail-open'); return; }
-                    if (!$('#dmCompareDialog').classList.contains('dm-hidden')) { closeCompare(); } else if (!$('#dmRemuxDialog').classList.contains('dm-hidden')) { closeRemux(); } else if (!$('#dmDialog').classList.contains('dm-hidden')) { closeDialog(); }
+                    if (!$('#dmCompareDialog').classList.contains('dm-hidden')) { closeCompare(); } else if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) { closeSmaller(); } else if (!$('#dmRemuxDialog').classList.contains('dm-hidden')) { closeRemux(); } else if (!$('#dmDialog').classList.contains('dm-hidden')) { closeDialog(); }
                     else if (!$('#dmDupDialog').classList.contains('dm-hidden')) { closeDupDialog(); } else if (!$('#dmLeftoverDialog').classList.contains('dm-hidden')) { closeLeftoverDialog(); }
                 });
 
@@ -5238,6 +5392,27 @@
                 $('#dmTimeline').addEventListener('input', function () { $('#dmTimeNow').textContent = formatClock(Number($('#dmTimeline').value)); });
                 $('#dmTimeline').addEventListener('change', loadFrames);
 
+                $('#dmSmallerOpen').addEventListener('click', openSmaller);
+                $('#dmSmallerClose').addEventListener('click', closeSmaller);
+                $('#dmSmallerAccept').addEventListener('click', confirmAccept);
+                $('#dmSmallerKeep').addEventListener('click', keepBoth);
+                $('#dmSmallerDialog').addEventListener('click', function (e) { if (e.target.id === 'dmSmallerDialog') { closeSmaller(); } });
+                $('#dmSmallerAll').addEventListener('click', function () {
+                    smallerPairs().forEach(function (p) { smallerPicked[p.output.ItemId] = true; });
+                    renderSmallerList();
+                });
+                $('#dmSmallerNone').addEventListener('click', function () {
+                    smallerPicked = {};
+                    renderSmallerList();
+                });
+                $('#dmSmallerList').addEventListener('change', function (e) {
+                    if (e.target.classList.contains('dm-smaller-pick')) {
+                        if (e.target.checked) { smallerPicked[e.target.dataset.id] = true; } else { delete smallerPicked[e.target.dataset.id]; }
+                    } else if (e.target.classList.contains('dm-smaller-season')) {
+                        e.target.dataset.ids.split(',').forEach(function (id) { if (e.target.checked) { smallerPicked[id] = true; } else { delete smallerPicked[id]; } });
+                    }
+                    renderSmallerList();
+                });
                 $('#dmLeftoverDelete').addEventListener('click', confirmLeftoverDelete);
                 $('#dmLeftoverOpen').addEventListener('click', openLeftoverDialog);
                 $('#dmLeftoverClose').addEventListener('click', closeLeftoverDialog);

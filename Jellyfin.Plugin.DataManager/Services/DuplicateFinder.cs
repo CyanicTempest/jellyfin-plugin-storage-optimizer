@@ -46,6 +46,7 @@ public static class DuplicateFinder
         result.GeneratedAt = report.GeneratedAt;
         result.NeedsScan = report.Files.Count > 0 && report.Files.All(f => string.IsNullOrEmpty(f.Kind));
 
+        var reEncodes = SmallerFiles.Find(report).Select(f => f.OutputId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var files = report.Files.Where(f => !f.IsExtra).ToList();
         var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < files.Count; i++)
@@ -113,7 +114,7 @@ public static class DuplicateFinder
         foreach (var copies in Enumerable.Range(0, files.Count).GroupBy(Root).Where(g => g.Count() > 1))
         {
             var labels = matchedOn.TryGetValue(copies.Key, out var found) ? found.ToList() : [];
-            var group = Build(copies.Select(i => files[i]).ToList(), labels);
+            var group = Build(copies.Select(i => files[i]).ToList(), labels, reEncodes);
             result.Groups.Add(group);
         }
 
@@ -149,7 +150,7 @@ public static class DuplicateFinder
         };
     }
 
-    private static DuplicateGroup Build(List<MediaFileInfo> copies, List<string> labels)
+    private static DuplicateGroup Build(List<MediaFileInfo> copies, List<string> labels, HashSet<string> reEncodes)
     {
         // Resolution first, then HDR, then the most picture data for the codec.
         var ranked = copies
@@ -171,6 +172,12 @@ public static class DuplicateFinder
             .ThenBy(f => f.SizeBytes)
             .ThenBy(f => f.Path, StringComparer.Ordinal)
             .First();
+
+        // A smaller re-encode has less picture data than its original by design, so going by the picture alone would
+        // always keep the original. The user made it to save space, so it's the one to keep.
+        var reEncode = ranked.FirstOrDefault(f => reEncodes.Contains(f.ItemId));
+        var isReEncode = reEncode is not null;
+        best = reEncode ?? best;
         ranked.Remove(best);
         ranked.Insert(0, best);
 
@@ -184,7 +191,7 @@ public static class DuplicateFinder
             Title = Title(best),
             MatchedOn = string.Join(", ", labels.Distinct(StringComparer.Ordinal)),
             BestItemId = best.ItemId,
-            BestReason = Reason(best, ranked[1], alike.Count > 1),
+            BestReason = isReEncode ? "Your smaller re-encode. Compare them before deleting the original" : Reason(best, ranked[1], alike.Count > 1),
             ReclaimableBytes = ranked.Skip(1).Sum(f => f.SizeBytes)
         };
         foreach (var copy in ranked)

@@ -138,6 +138,69 @@ public sealed class MediaDeleter
         return result;
     }
 
+    /// <summary>
+    /// Accepts re-encodes the user confirmed. Each original is deleted, and its subtitles, artwork and .nfo files are
+    /// kept by moving them to the new file's name. An original is only deleted while its re-encode is on the disk and smaller.
+    /// </summary>
+    /// <param name="outputIds">The re-encodes.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>What was deleted, and what couldn't be.</returns>
+    public async Task<DeleteResult> AcceptAsync(IEnumerable<Guid> outputIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outputIds);
+
+        var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var wanted = outputIds.Select(id => id.ToString("N", CultureInfo.InvariantCulture)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var byId = report?.Files.ToDictionary(f => f.ItemId, StringComparer.OrdinalIgnoreCase) ?? [];
+        var result = new DeleteResult();
+        var moves = new Dictionary<string, (IReadOnlyList<string> Sidecars, string OldBase, string NewBase)>(StringComparer.OrdinalIgnoreCase);
+        var originals = new List<Guid>();
+        foreach (var pair in SmallerFiles.Find(report).Where(p => wanted.Contains(p.OutputId)))
+        {
+            var original = byId[pair.OriginalId];
+            var output = new FileInfo(byId[pair.OutputId].Path);
+            if (!output.Exists || !File.Exists(original.Path) || output.Length >= new FileInfo(original.Path).Length)
+            {
+                result.Failed.Add(new DeleteFailure(original.Path, "Its re-encode is missing or no longer smaller, so the original was kept."));
+                continue;
+            }
+
+            moves[pair.OriginalId] = (Sidecars.Find(original.Path), Path.GetFileNameWithoutExtension(original.Path), Path.GetFileNameWithoutExtension(output.Name));
+            originals.Add(Guid.Parse(pair.OriginalId));
+        }
+
+        var deleted = await DeleteAsync(new DeleteRequest { ItemIds = originals }, cancellationToken).ConfigureAwait(false);
+        result.DeletedFiles = deleted.DeletedFiles;
+        result.FreedBytes = deleted.FreedBytes;
+        foreach (var failure in deleted.Failed)
+        {
+            result.Failed.Add(failure);
+        }
+
+        foreach (var id in deleted.DeletedItemIds)
+        {
+            result.DeletedItemIds.Add(id);
+            var (sidecars, oldBase, newBase) = moves[id];
+            foreach (var sidecar in sidecars)
+            {
+                var renamed = Sidecars.Renamed(sidecar, oldBase, newBase);
+                try
+                {
+                    if (!File.Exists(renamed))
+                    {
+                        File.Move(sidecar, renamed);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Storage Optimizer couldn't move {Path} to the new file's name", sidecar);
+                }
+            }
+        }
+
+        return result;
+    }
+
     private bool TryDelete(string path, long size, DeleteResult result)
     {
         _libraryMonitor.ReportFileSystemChangeBeginning(path);

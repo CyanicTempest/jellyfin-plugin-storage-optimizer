@@ -14,6 +14,7 @@ It can:
 - **Re-encode videos** to HEVC or AV1 with a preview on real frames from your own files, so you can see what you'd give up before you start.
 - **Remux** a file to drop audio and subtitle tracks you never use, without touching the picture.
 - **Shrink audio and extras:** convert big lossless audio to something smaller, remove Dolby Vision (keeping HDR10), turn HDR into SDR, and skip embedded fonts and cover art.
+- **Accept smaller files in bulk:** when re-encodes you kept beside their originals come out smaller, review them, compare them, and delete the originals in one go.
 - **Find duplicates:** the same movie or episode in your library more than once, with the best copy marked.
 - **Find media nobody watches**, so you can shrink it harder or let it go.
 - **Clean up leftovers:** orphaned metadata and trickplay folders, and sample clips.

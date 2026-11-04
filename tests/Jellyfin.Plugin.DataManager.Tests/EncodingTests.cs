@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.DataManager.Encoding;
+using Jellyfin.Plugin.DataManager.Models;
 using Jellyfin.Plugin.DataManager.Services;
 using Xunit;
 
@@ -150,5 +151,43 @@ public sealed class EncodingTests
     public void Disagree_flags_runs_too_far_apart_to_trust(double first, double second, bool expected)
     {
         Assert.Equal(expected, GpuParsing.Disagree([first, second]));
+    }
+
+    [Theory]
+    [InlineData("/media/Example Film - HEVC.mkv", true)]
+    [InlineData("/media/Example Film - AV1 720p.mkv", true)]
+    [InlineData("/media/Example Film - H264 1080p.mkv", true)]
+    [InlineData("/media/Example Film - Remux.mkv", true)]
+    [InlineData("/media/Example Film.mkv", false)]
+    [InlineData("/media/Example - Film.mkv", false)]
+    [InlineData("/media/Example Film - 1080p.mkv", false)]
+    public void IsKeptReEncode_goes_by_the_name_given_to_a_kept_file(string path, bool expected)
+    {
+        Assert.Equal(expected, SmallerFiles.IsKeptReEncode(path));
+    }
+
+    [Fact]
+    public void Find_pairs_a_smaller_re_encode_with_its_original_only()
+    {
+        var report = new StorageReport();
+        report.Files.Add(new MediaFileInfo { ItemId = "a", Path = "/m/Film.mkv", SizeBytes = 100, OtherVersionIds = ["b", "c"] });
+        report.Files.Add(new MediaFileInfo { ItemId = "b", Path = "/m/Film - HEVC.mkv", SizeBytes = 40, OtherVersionIds = ["a", "c"] });
+        report.Files.Add(new MediaFileInfo { ItemId = "c", Path = "/m/Film - AV1.mkv", SizeBytes = 140, OtherVersionIds = ["a", "b"] });
+        report.Files.Add(new MediaFileInfo { ItemId = "d", Path = "/m/Other - HEVC.mkv", SizeBytes = 10 });
+
+        Assert.Equal(new SmallerFile("a", "b"), Assert.Single(SmallerFiles.Find(report)));
+    }
+
+    [Fact]
+    public void DuplicateFinder_keeps_the_smaller_re_encode_not_the_original()
+    {
+        var report = new StorageReport();
+        report.Files.Add(new MediaFileInfo { ItemId = "a", Path = "/m/Film.mkv", Kind = "Movie", Name = "Film", Width = 1920, Height = 1080, VideoCodec = "h264", Bitrate = 20_000_000, SizeBytes = 100, OtherVersionIds = ["b"] });
+        report.Files.Add(new MediaFileInfo { ItemId = "b", Path = "/m/Film - HEVC.mkv", Kind = "Movie", Name = "Film", Width = 1920, Height = 1080, VideoCodec = "hevc", Bitrate = 4_000_000, SizeBytes = 40, OtherVersionIds = ["a"] });
+
+        var group = Assert.Single(DuplicateFinder.Find(report).Groups);
+
+        Assert.Equal("b", group.BestItemId);
+        Assert.Equal(100, group.ReclaimableBytes);
     }
 }
