@@ -244,6 +244,7 @@
             #DataManagerDashboardPage .dm-sv { text-align: right; font-size: 14px; font-weight: 600; color: var(--dm-tint-ink); font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-sv small { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-sv.dm-none { color: var(--dm-ink-3); font-weight: 400; }
+            #DataManagerDashboardPage .dm-sv.dm-done { color: var(--dm-ok); font-weight: 500; }
             #DataManagerDashboardPage .dm-sv.dm-minor { color: var(--dm-ink-2); font-weight: 500; }
             #DataManagerDashboardPage .dm-sh > .dm-dropdown { margin-left: auto; }
             #DataManagerDashboardPage .dm-row.dm-depth-1 .dm-mb,
@@ -278,6 +279,7 @@
             #DataManagerDashboardPage .dm-more.dm-end { font-size: 12.5px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-empty-list { padding: 28px 20px; margin: 0; color: var(--dm-ink-2); }
             #DataManagerDashboardPage .dm-notice { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin: 0; padding: 10px 20px; font-size: 13px; border-top: 1px solid var(--dm-soft); background: var(--dm-warning-bg); color: var(--dm-ink-2); }
+            #DataManagerDashboardPage .dm-toast { position: fixed; bottom: 20px; left: var(--dm-dock-x, 50%); transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 14px; padding: 12px 18px; background: var(--dm-dock); border: 1px solid var(--dm-dock-line); border-radius: 12px; box-shadow: 0 16px 44px var(--dm-shadow); font-size: 13.5px; white-space: nowrap; }
             #DataManagerDashboardPage .dm-notice.dm-failed { color: var(--dm-error); background: var(--dm-error-bg); }
             #DataManagerDashboardPage .dm-notice.dm-attention { color: var(--dm-warning); }
             #DataManagerDashboardPage .dm-db > .dm-notice { border: 1px solid var(--dm-line); border-radius: 10px; padding: 10px 14px; }
@@ -741,6 +743,8 @@
                         <div id="dmMedia"></div>
                     </section>
                 </div>
+
+                <div id="dmToast" class="dm-toast dm-hidden" role="status"><span id="dmToastText"></span><button type="button" id="dmToastShow" class="dm-text-button">Show queue</button></div>
 
                 <div id="dmDock" class="dm-dock dm-hidden" role="region" aria-label="Selected files">
                     <div class="dm-dock-n"><b id="dmDockCount"></b><span id="dmDockDetail"></span></div>
@@ -1520,7 +1524,7 @@
                     // A show counts once, so the button says the same as the list.
                     var titles = {};
                     suggested.forEach(function (f) { titles[isEpisode(f) ? 'show-' + (f.SeriesId || f.SeriesName) : f.ItemId] = true; });
-                    var everything = summary.Files.reduce(function (sum, f) { return sum + f.EstimatedSavingsBytes; }, 0);
+                    var everything = summary.Files.reduce(function (sum, f) { return sum + (queuedJob(f.ItemId) || keptOutput(f.ItemId) ? 0 : f.EstimatedSavingsBytes); }, 0);
                     $('#dmFreeableNote').textContent = everything > freeable ? 'suggested, up to ' + formatBytes(everything) + ' in total' : 'suggested';
                     $('#dmSelectSuggested').textContent = 'Select ' + plural(Object.keys(titles).length, 'suggested title');
                     renderSavingsLine();
@@ -1681,6 +1685,21 @@
                 }
 
                 // One row per title. A title with versions has a toggle that shows the others beneath it.
+                // The file's place in the queue, if it has one: Waiting, Encoding or Paused.
+                function queuedJob(id) {
+                    return (lastJobs || []).filter(function (j) { return normaliseId(j.ItemId) === id && (j.State === 'Queued' || j.State === 'Running' || j.State === 'Paused'); })[0] || null;
+                }
+
+                function statusChip(job) {
+                    return job.State === 'Running' ? 'Encoding ' + Math.round(job.Progress) + '%' : stateNames[job.State];
+                }
+
+                // The new file of a kept re-encode that's waiting to be accepted, if this is its original.
+                function keptOutput(id) {
+                    var pair = ((summary && summary.SmallerFiles) || []).filter(function (p) { return p.OriginalId === id; })[0];
+                    return pair ? filesById[pair.OutputId] || null : null;
+                }
+
                 function fileRow(f, versions, groupKey, main, depth) {
                     var lead;
                     var title;
@@ -1700,13 +1719,23 @@
                                 + plural(versions.length, 'version') + ', ' + formatBytes(versions.reduce(function (sum, v) { return sum + v.SizeBytes; }, 0)) + icon('chevronDown') + '</button>' : '') + '</div>';
                     }
                     var note = !main && versions.length > 1 ? 'has other versions' : '';
+                    var job = main ? null : queuedJob(f.ItemId);
+                    var kept = main ? null : keptOutput(f.ItemId);
+                    if (job) {
+                        title = title.replace(/<\/div>$/, '<span class="dm-tag dm-tag-suggested dm-job-chip" data-id="' + f.ItemId + '">' + escapeHtml(statusChip(job)) + '</span></div>');
+                    } else if (kept) {
+                        title = title.replace(/<\/div>$/, '<span class="dm-tag dm-tag-ok">Re-encoded</span></div>');
+                    }
+                    var saving = job ? '<div class="dm-sv dm-none">In the queue</div>'
+                        : kept ? '<div class="dm-sv dm-done">Ready to accept<small>' + escapeHtml(sizeChange(f.SizeBytes, kept.SizeBytes).split(' to ')[1]) + ', final</small></div>'
+                            : savingCell(f.EstimatedSavingsBytes, f.SizeBytes, f.IsRecommended && (f.SuggestedReason || true), f.EstimatedSavingsBytes > 0 ? '' : note, f.SavingsTested);
 
                     return '<div class="dm-row dm-depth-' + depth + (main ? ' dm-version' : '') + (episode ? ' dm-ep' : '') + (selected[f.ItemId] ? ' dm-selected' : '') + '" title="' + escapeHtml(f.Path) + '">'
                         + '<input type="checkbox" class="dm-select" data-id="' + f.ItemId + '"' + (selected[f.ItemId] ? ' checked' : '') + ' aria-label="Select ' + escapeHtml(main ? fileName(f.Path) : titleOf(f)) + '" />'
                         + lead
                         + '<div class="dm-main">' + title + '<div class="dm-meta">' + fileMeta(f) + '</div></div>'
                         + sizeCell(f.SizeBytes, f.EstimatedSavingsBytes, f.VideoCodec)
-                        + savingCell(f.EstimatedSavingsBytes, f.SizeBytes, f.IsRecommended && (f.SuggestedReason || true), f.EstimatedSavingsBytes > 0 ? '' : note, f.SavingsTested) + '</div>';
+                        + saving + '</div>';
                 }
 
                 // Totals for a series or season. Every version counts toward its size, and the main versions toward the rest.
@@ -2958,6 +2987,7 @@
                 }
 
                 var codecNoteOpen = false;
+                var toastTimer = null;
                 var testedThisTime = false;
                 var modeSpace = { enough: true, note: '' };
 
@@ -3006,6 +3036,8 @@
                     var files = scopeFiles();
                     var warnings = [];
                     var option = (codecOptions || []).filter(function (o) { return o.Codec === codec; })[0];
+                    var busy = files.filter(function (f) { return queuedJob(f.ItemId); });
+                    if (busy.length) { warnings.push((busy.length === 1 ? titleOf(busy[0]) + ' is' : busy.length + ' of these are') + ' already waiting or encoding, so ' + (busy.length === 1 ? 'it' : 'they') + ' will be skipped.'); }
                     var hdr = files.filter(function (f) { return f.IsHdr; });
                     var hdrChoice = $('#dmHdr').value;
                     if (hdr.length && codec === 'H264' && hdrChoice !== 'ToneMapToSdr') { warnings.push('H.264 can\'t keep HDR, so HDR files will fail. Choose to turn HDR into SDR below, or another codec.'); }
@@ -3511,7 +3543,7 @@
                     preview.clipWanted = null;
                     previewViewer.stopClip();
                     previewViewer.status('', false);
-                    $('#dmEncodeButton').focus();
+                    $('#dmEncodeButton').focus({ preventScroll: true });
                 }
 
                 // What the new files will be called, and whether Jellyfin's details go into them, as the settings say.
@@ -3568,6 +3600,14 @@
                         ok.disabled = false;
                         $('#dmConfirmError').textContent = 'That didn\'t work. Nothing more was changed. Check the Jellyfin log, then try again.';
                     });
+                }
+
+                // A short note that floats over the page, for something that happened out of view.
+                function showToast(text) {
+                    $('#dmToastText').textContent = text;
+                    $('#dmToast').classList.remove('dm-hidden');
+                    clearTimeout(toastTimer);
+                    toastTimer = setTimeout(function () { $('#dmToast').classList.add('dm-hidden'); }, 8000);
                 }
 
                 function showMediaNotice(text, failed) {
@@ -4258,15 +4298,19 @@
                         data: JSON.stringify(body),
                         contentType: 'application/json',
                         dataType: 'json'
-                    }).then(function () {
+                    }).then(function (jobs) {
                         $('#dmDialogStart').disabled = false;
                         closeDialog();
                         selected = {};
                         updateSelection();
                         loadJobs();
-                    }, function () {
+                        showToast(plural(jobs && jobs.length ? jobs.length : body.ItemIds.length, 'encode') + ' queued');
+                    }, function (error) {
                         $('#dmDialogStart').disabled = false;
-                        $('#dmDialogWarning').innerHTML = '<li>The server didn\'t accept the request. Check the Jellyfin log, then try again.</li>';
+                        return errorText(error, 'The server didn\'t accept the request. Check the Jellyfin log, then try again.').then(function (text) {
+                            $('#dmDialogWarning').innerHTML = '<li>' + escapeHtml(text) + '</li>';
+                            closeConfirm();
+                        });
                     });
                 }
 
@@ -4860,7 +4904,7 @@
                 // Server errors come back as problem details; their detail says what went wrong.
                 function errorText(error, fallback) {
                     if (error && typeof error.json === 'function') {
-                        return error.json().then(function (problem) { return (problem && (problem.detail || problem.title)) || fallback; }, function () { return fallback; });
+                        return error.json().then(function (problem) { return typeof problem === 'string' ? problem : (problem && (problem.detail || problem.title)) || fallback; }, function () { return fallback; });
                     }
                     return Promise.resolve(fallback);
                 }
@@ -5155,7 +5199,17 @@
                 }
 
                 function renderJobs(jobs) {
+                    var before = queueKey(lastJobs);
                     lastJobs = jobs;
+                    // The list only redraws when a file joins or leaves the queue. A percentage is changed in place.
+                    if (summary && summary.Files && before !== queueKey(jobs)) {
+                        renderMedia(true);
+                        renderStorage();
+                    }
+                    page.querySelectorAll('.dm-job-chip').forEach(function (chip) {
+                        var job = queuedJob(chip.dataset.id);
+                        if (job) { chip.textContent = statusChip(job); }
+                    });
                     $('#dmJobsBlock').classList.toggle('dm-hidden', !jobs.length);
                     var running = jobs.filter(function (j) { return j.State === 'Running'; }).length;
                     var waiting = jobs.filter(function (j) { return j.State === 'Queued'; }).length;
@@ -5177,6 +5231,10 @@
                     patchRows($('#dmJobs'), jobGroups(jobs).map(function (group) {
                         return group.jobs.length > 1 ? seasonRow(group) : { key: group.jobs[0].Id, html: '<div>' + jobHtml(group.jobs[0]) + '</div>' };
                     }));
+                }
+
+                function queueKey(jobs) {
+                    return (jobs || []).filter(function (j) { return j.State === 'Queued' || j.State === 'Running' || j.State === 'Paused'; }).map(function (j) { return j.ItemId + j.State; }).sort().join();
                 }
 
                 function jobHtml(j, episodeRow) {
@@ -5580,6 +5638,10 @@
                 $('#dmRemuxStart').addEventListener('click', startRemux);
                 $('#dmRemuxDialog').addEventListener('click', function (e) { if (e.target.id === 'dmRemuxDialog') { closeRemux(); } });
                 $('#dmDialogStart').addEventListener('click', confirmStart);
+                $('#dmToastShow').addEventListener('click', function () {
+                    $('#dmToast').classList.add('dm-hidden');
+                    $('#dmJobsBlock').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
                 $('#dmDialog').addEventListener('click', function (e) { if (e.target.id === 'dmDialog') { closeDialog(); } });
 
                 $('#dmCompareClose').addEventListener('click', closeCompare);
