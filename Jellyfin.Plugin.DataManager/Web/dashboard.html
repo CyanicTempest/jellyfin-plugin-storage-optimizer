@@ -3524,6 +3524,10 @@
                     resetTracks();
                     placeTrackPicker('encode');
                     resetScope();
+                    // The last window's figures shouldn't show until this one's arrive.
+                    $('#dmResult').classList.add('dm-hidden');
+                    $('#dmResult').innerHTML = '';
+                    $('#dmEstimateNote').textContent = '';
                     ApiClient.getJSON(ApiClient.getUrl('DataManager/Gpu')).then(function (overview) {
                         decodingProblem = overview.Decoding || null;
                         if (!$('#dmDialog').classList.contains('dm-hidden')) { renderWarnings(); }
