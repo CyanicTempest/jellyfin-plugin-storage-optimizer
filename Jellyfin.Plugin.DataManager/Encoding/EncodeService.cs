@@ -2140,6 +2140,12 @@ public sealed class EncodeService : IDisposable
             {
                 (scale, var own) = _speedEstimator.VideoScale(SpeedEstimator.Key(encoder, effort, quality, (p.File.Width, p.File.Height), p.File.Output));
                 measured &= own;
+
+                // Nothing with this encoder has been tested yet, so this is the same rough figure the list shows.
+                if (!own && scale == 1.0)
+                {
+                    scale = SavingsEstimator.RoughScale(p.Info.VideoCodec);
+                }
             }
 
             total += SavingsEstimator.EstimateSize(p.Info, p.AudioBitrate, codec, p.File.Output.Width, p.File.Output.Height, quality, effort, scale, p.OutputAudioBitrate, p.SubtitleBitrate);

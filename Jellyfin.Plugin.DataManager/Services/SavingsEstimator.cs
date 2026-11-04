@@ -116,7 +116,16 @@ public static class SavingsEstimator
     // The list's estimate before any test encode. H.264 sources came out smaller than the rule of thumb in real
     // encodes (62 to 66% smaller against 38 to 57% estimated), so the rough figure leans that way. Test-encode
     // corrections are measured against the plain rule, so this stays out of them.
-    private static double RoughScale(string codec) => codec.ToUpperInvariant() is "H264" or "AVC" ? 0.8 : 1;
+    /// <summary>
+    /// Gets the correction for a rough estimate of an H.264 or other source, before any test encode.
+    /// </summary>
+    /// <param name="codec">The source's codec, as Jellyfin names it.</param>
+    /// <returns>The correction to the video's size.</returns>
+    public static double RoughScale(string codec)
+    {
+        ArgumentNullException.ThrowIfNull(codec);
+        return codec.ToUpperInvariant() is "H264" or "AVC" ? 0.8 : 1;
+    }
 
     // Bitrate compared with Balanced. Each step of an encoder's quality scale changes the bitrate by about a
     // sixth, so a quality level two steps up needs about a third more; grainy films change more than clean ones,
