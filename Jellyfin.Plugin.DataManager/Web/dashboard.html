@@ -674,6 +674,7 @@
                             <h2 class="dm-h2">Encoding</h2>
                             <span id="dmJobCounts" class="dm-tools"></span>
                             <button type="button" id="dmClearQueue" class="dm-small-button dm-quiet dm-hidden" title="Remove what's waiting, and failed or cancelled jobs. Encoding, paused and finished encodes stay.">Clear queue</button>
+                            <button type="button" id="dmClearFinished" class="dm-small-button dm-quiet dm-hidden" title="Take finished encodes off this list. Their files stay as they are.">Clear finished</button>
                         </div>
                         <div id="dmJobsNow" class="dm-jobs-now dm-hidden" role="status"><i></i><span></span></div>
                         <div id="dmJobs"></div>
@@ -5217,9 +5218,13 @@
                     var attention = jobs.filter(function (j) { return j.State === 'NeedsDecision' || j.State === 'Failed'; }).length;
                     var slots = lastStatus && lastStatus.Slots > 1 ? lastStatus.Slots : 0;
                     $('#dmClearQueue').classList.toggle('dm-hidden', !jobs.some(function (j) { return j.State === 'Queued' || j.State === 'Failed' || j.State === 'Cancelled'; }));
+                    var isFinished = function (j) { return j.State === 'Completed' || j.State === 'Discarded'; };
+                    var finishedJobs = jobs.filter(isFinished).length;
+                    $('#dmClearFinished').classList.toggle('dm-hidden', !finishedJobs);
                     $('#dmJobCounts').innerHTML = (running ? '<span class="dm-chip dm-chip-acc">' + running + ' running</span>' : '')
                         + (paused ? '<span class="dm-chip dm-chip-warn">' + paused + ' paused</span>' : '')
                         + (waiting ? '<span class="dm-chip">' + waiting + ' waiting</span>' : '')
+                        + (finishedJobs ? '<span class="dm-chip dm-chip-ok">' + finishedJobs + ' done</span>' : '')
                         + (attention ? '<span class="dm-chip dm-chip-warn">' + attention + ' need' + (attention === 1 ? 's' : '') + ' a look</span>' : '')
                         + (slots ? '<a class="dm-chip" href="#/configurationpage?name=Storage%20Optimizer" title="How many encodes run at the same time. Change it in Settings.">' + slots + ' at once</a>' : '');
                     // Who is watching, when that is changing what encodes: a stream that transcodes, a paused encode, or a GPU test.
@@ -5244,6 +5249,7 @@
                     var meta = what + ' · ' + (j.Mode === 'KeepBoth' ? 'keeps original' : 'replaces original') + (finished ? '' : ' · ' + formatBytes(j.SourceBytes));
                     var actions = (j.State === 'Paused' ? '<button type="button" class="dm-small-button dm-resume" data-id="' + j.Id + '" title="Carry on now, even though someone is watching">Resume now</button>' : '')
                         + (j.CanCancel ? '<button type="button" class="dm-small-button dm-quiet dm-cancel" data-id="' + j.Id + '">Cancel</button>' : '')
+                        + (j.State === 'Completed' || j.State === 'Discarded' ? '<button type="button" class="dm-small-button dm-quiet dm-remove-job" data-id="' + j.Id + '" title="Take this off the list. Its files stay as they are.">Remove</button>' : '')
                         + (j.State === 'NeedsDecision'
                             ? '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="true">' + (j.Mode === 'Replace' ? 'Replace anyway' : 'Add it anyway') + '</button>'
                                 + '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="false">Delete the new file</button>'
@@ -5280,7 +5286,9 @@
                     return formatBytes(before) + ' to ' + formatBytes(after) + (before > after ? ', ' + Math.round((before - after) / before * 100) + '% smaller' : '');
                 }
 
-                // Two or more episodes of one season queued together show as the season, in the place of its newest job.
+                var queueRank = { Running: 0, Paused: 0, NeedsDecision: 1, Failed: 1, Queued: 2 };
+
+                // Two or more episodes of one season queued together show as the season.
                 function jobGroups(jobs) {
                     var groups = [];
                     var bySeason = {};
@@ -5294,10 +5302,16 @@
                         if (key) { bySeason[key] = group; }
                         groups.push(group);
                     });
-                    groups.forEach(function (group) {
+                    groups.forEach(function (group, index) {
                         group.jobs.sort(function (a, b) { return (a.EpisodeNumber == null ? 1e6 : a.EpisodeNumber) - (b.EpisodeNumber == null ? 1e6 : b.EpisodeNumber); });
+                        group.index = index;
+                        group.rank = Math.min.apply(null, group.jobs.map(function (j) { return queueRank[j.State] != null ? queueRank[j.State] : 3; }));
                     });
-                    return groups;
+                    // What's running first, then what needs a look, then what's waiting in the order it will run, then the rest, newest
+                    // first. The server lists the newest job first, so the waiting ones are turned round.
+                    return groups.sort(function (a, b) {
+                        return a.rank - b.rank || (a.rank === 2 ? b.index - a.index : a.index - b.index);
+                    });
                 }
 
                 // How much is left of a season: what's running, then what's waiting at the speed the running ones are going.
@@ -5470,6 +5484,11 @@
                     var cancelRest = e.target.closest('.dm-cancel-season');
                     if (cancelRest) {
                         cancelSeason(cancelRest.dataset.key);
+                        return;
+                    }
+                    var removeJob = e.target.closest('.dm-remove-job');
+                    if (removeJob) {
+                        postJson('DataManager/Encode/Jobs/' + removeJob.dataset.id + '/Remove', {}).then(loadJobs, loadJobs);
                         return;
                     }
                     var cancel = e.target.closest('.dm-cancel');
@@ -5652,6 +5671,7 @@
                 $('#dmTimeline').addEventListener('change', loadFrames);
 
                 $('#dmClearQueue').addEventListener('click', confirmClearQueue);
+                $('#dmClearFinished').addEventListener('click', function () { postJson('DataManager/Encode/Jobs/ClearFinished', {}).then(loadJobs, loadJobs); });
                 $('#dmSmallerOpen').addEventListener('click', openSmaller);
                 $('#dmSmallerClose').addEventListener('click', closeSmaller);
                 $('#dmSmallerAccept').addEventListener('click', confirmAccept);

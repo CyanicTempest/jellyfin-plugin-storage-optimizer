@@ -302,6 +302,19 @@ public sealed class EncodeService : IDisposable
     }
 
     /// <summary>
+    /// Takes finished encodes off the list. Their files aren't touched, and the Smaller files tile keeps its re-encodes.
+    /// </summary>
+    /// <param name="jobId">One job to remove, or null for every finished one.</param>
+    /// <returns>How many were removed.</returns>
+    public int RemoveFinished(Guid? jobId = null)
+    {
+        lock (_jobsLock)
+        {
+            return _jobs.RemoveAll(j => j.State is EncodeJobState.Completed or EncodeJobState.Discarded && (jobId is null || j.Id == jobId));
+        }
+    }
+
+    /// <summary>
     /// Estimates the size of the new files and how long encoding them will take, for the chosen settings and for
     /// each other quality and effort, so the choices can be weighed against each other.
     /// </summary>

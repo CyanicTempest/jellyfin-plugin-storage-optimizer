@@ -319,6 +319,28 @@ public class DataManagerController : ControllerBase
     public ActionResult<ClearResult> ClearJobs() => Ok(_encodeService.ClearQueue());
 
     /// <summary>
+    /// Takes every finished encode off the list. Nothing on disk changes.
+    /// </summary>
+    /// <returns>No content.</returns>
+    [HttpPost("Encode/Jobs/ClearFinished")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult ClearFinishedJobs()
+    {
+        _encodeService.RemoveFinished();
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Takes one finished encode off the list. Nothing on disk changes.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>No content, or not found if it isn't a finished job.</returns>
+    [HttpPost("Encode/Jobs/{jobId}/Remove")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult RemoveFinishedJob([FromRoute] Guid jobId) => _encodeService.RemoveFinished(jobId) > 0 ? NoContent() : NotFound();
+
+    /// <summary>
     /// Gets how many encodes are running, paused and waiting, and who is watching.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
