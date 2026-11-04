@@ -196,6 +196,22 @@ public static class FfmpegArguments
     }
 
     /// <summary>
+    /// Builds the arguments that copy a stretch of a video, unchanged and without its sound, for timing encodes on.
+    /// </summary>
+    /// <param name="inputPath">The source file.</param>
+    /// <param name="outputPath">The file to write, an mkv.</param>
+    /// <param name="startSeconds">Where in the source to start.</param>
+    /// <param name="seconds">How much to copy.</param>
+    /// <returns>The arguments, one per entry.</returns>
+    public static IList<string> BuildSceneCopy(string inputPath, string outputPath, double startSeconds, double seconds)
+        =>
+        [
+            "-hide_banner", "-nostdin", "-y",
+            "-ss", startSeconds.ToString("0.###", CultureInfo.InvariantCulture), "-i", inputPath,
+            "-map", "0:V:0", "-t", seconds.ToString("0.###", CultureInfo.InvariantCulture), "-c:v", "copy", "-an", "-sn", "-f", "matroska", outputPath
+        ];
+
+    /// <summary>
     /// Builds the arguments for a preview: a few frames encoded exactly as a real encode would, video only.
     /// </summary>
     /// <param name="inputPath">The source file.</param>

@@ -9,8 +9,10 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.DataManager.Configuration;
 using Jellyfin.Plugin.DataManager.Models;
+using Jellyfin.Plugin.DataManager.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -58,13 +60,18 @@ public sealed class GpuTester : IDisposable
     // Encodes start this far before the end of the film at the latest, so they don't run out while being timed.
     private const double RunwaySeconds = 120;
 
+    // How much of the film is copied to test with. It plays round and round, so a fast GPU can't run out of it.
+    private const double SceneSeconds = 60;
+
     // How long encodes run before timing starts, once all of them are putting out frames, and how long they're timed.
     private const double SettleSeconds = 3;
     private const double WindowSeconds = 8;
 
     private static readonly TimeSpan _pauseWait = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan _copyTimeout = TimeSpan.FromMinutes(5);
 
     private readonly ILibraryManager _libraryManager;
+    private readonly IMediaEncoder _mediaEncoder;
     private readonly EncodeService _encodes;
     private readonly SpeedEstimator _speed;
     private readonly HardwareAcceleration _hardware;
@@ -79,15 +86,17 @@ public sealed class GpuTester : IDisposable
     /// Initializes a new instance of the <see cref="GpuTester"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager, to find a scene to encode.</param>
+    /// <param name="mediaEncoder">Jellyfin's media encoder, which knows where ffmpeg is.</param>
     /// <param name="encodes">The re-encode queue, which is held while the test runs.</param>
     /// <param name="speed">Times the encodes.</param>
     /// <param name="hardware">Sets up the GPU for test encodes.</param>
     /// <param name="gpu">Reads what the GPU is.</param>
     /// <param name="viewers">Finds streams that are using the GPU.</param>
     /// <param name="logger">The logger.</param>
-    public GpuTester(ILibraryManager libraryManager, EncodeService encodes, SpeedEstimator speed, HardwareAcceleration hardware, GpuDetector gpu, ViewerMonitor viewers, ILogger<GpuTester> logger)
+    public GpuTester(ILibraryManager libraryManager, IMediaEncoder mediaEncoder, EncodeService encodes, SpeedEstimator speed, HardwareAcceleration hardware, GpuDetector gpu, ViewerMonitor viewers, ILogger<GpuTester> logger)
     {
         _libraryManager = libraryManager;
+        _mediaEncoder = mediaEncoder;
         _encodes = encodes;
         _speed = speed;
         _hardware = hardware;
@@ -341,17 +350,64 @@ public sealed class GpuTester : IDisposable
     // as the card warming up, then counts the same for every number. Two runs that disagree get a third to settle it.
     private async Task<Trials> TrialsAsync(string encoder, (Video Item, MediaFileInfo File) clip, SourceVideo source, string clipName, CancellationToken cancellationToken)
     {
-        // The first run isn't counted. It reads the scene from a cold disk, which on a slow drive or a network share
-        // can hold a fast GPU back more than anything being measured, and the runs after it find the scene in the
-        // disk cache. It also wakes the GPU, and tells which way it decodes this film: on the GPU if that works,
-        // otherwise on the CPU.
+        // Several encodes reading one film from a slow drive or a network share can go slower in total than one,
+        // whatever the GPU can do, so the test encodes a copy of a scene on this server's own disk.
+        Update(new GpuTestStatus("Running", 0, GpuParsing.MostAtOnce, [], 0, "Copying a scene to test with", clipName));
+        var scene = await CopySceneAsync(clip, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RunTrialsAsync(encoder, scene ?? clip.Item.Path, scene is null ? SceneStart(clip.File.DurationSeconds) : 0, scene is not null, source, clipName, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            DeleteQuietly(scene);
+        }
+    }
+
+    // Copies a stretch of the film's video, unchanged, or returns null if there's no room or it can't be done.
+    private async Task<string?> CopySceneAsync((Video Item, MediaFileInfo File) clip, CancellationToken cancellationToken)
+    {
+        var duration = clip.File.DurationSeconds;
+        var needed = duration > 0 ? clip.File.SizeBytes * (SceneSeconds / duration) * 2 : long.MaxValue;
+        var folder = Path.GetTempPath();
+        var output = Path.Combine(folder, "datamanager-gputest-" + Guid.NewGuid().ToString("N") + ".mkv");
+        try
+        {
+            if (new DriveInfo(folder).AvailableFreeSpace < needed)
+            {
+                _logger.LogInformation("Storage Optimizer's GPU test has no room to copy a scene, so it reads the film directly");
+                return null;
+            }
+
+            await FfmpegRunner.RunAsync(
+                _mediaEncoder.EncoderPath,
+                FfmpegArguments.BuildSceneCopy(clip.Item.Path, output, SceneStart(duration), SceneSeconds),
+                _copyTimeout,
+                "copy a scene",
+                cancellationToken).ConfigureAwait(false);
+            return output;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or TimeoutException)
+        {
+            _logger.LogInformation(ex, "Storage Optimizer's GPU test couldn't copy a scene, so it reads the film directly");
+            DeleteQuietly(output);
+            return null;
+        }
+    }
+
+    private async Task<Trials> RunTrialsAsync(string encoder, string path, double start, bool loop, SourceVideo source, string clipName, CancellationToken cancellationToken)
+    {
+        (string Path, double Start, bool Loop) scene = (path, start, loop);
+
+        // The first run isn't counted. It wakes the GPU and, when the film is read directly, brings the scene into
+        // the disk cache. It also tells which way the GPU decodes this film: on the GPU if that works, otherwise on the CPU.
         Update(new GpuTestStatus("Running", 0, GpuParsing.MostAtOnce, [], 0, "Warming up", clipName));
         var useDecoder = true;
-        var warmUp = await TimeTogetherAsync(1, encoder, clip, source, useDecoder, cancellationToken).ConfigureAwait(false);
+        var warmUp = await TimeTogetherAsync(1, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false);
         if (warmUp is null)
         {
             useDecoder = false;
-            warmUp = await TimeTogetherAsync(1, encoder, clip, source, useDecoder, cancellationToken).ConfigureAwait(false);
+            warmUp = await TimeTogetherAsync(1, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false);
         }
 
         if (warmUp is null)
@@ -363,7 +419,7 @@ public sealed class GpuTester : IDisposable
         for (var count = 1; count <= GpuParsing.MostAtOnce; count++)
         {
             Update(new GpuTestStatus("Running", count - 1, GpuParsing.MostAtOnce, GpuParsing.RelativeSpeeds(totals), 0, count == 1 ? "Timing one encode" : $"Timing {count} at once", clipName));
-            if (await TimeTogetherAsync(count, encoder, clip, source, useDecoder, cancellationToken).ConfigureAwait(false) is not { } total)
+            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false) is not { } total)
             {
                 if (count == 1)
                 {
@@ -380,7 +436,7 @@ public sealed class GpuTester : IDisposable
         for (var count = totals.Count; count >= 1; count--)
         {
             Update(new GpuTestStatus("Running", totals.Count, GpuParsing.MostAtOnce, GpuParsing.RelativeSpeeds(totals), 0, count == 1 ? "Checking one encode again" : $"Checking {count} at once again", clipName));
-            if (await TimeTogetherAsync(count, encoder, clip, source, useDecoder, cancellationToken).ConfigureAwait(false) is { } again)
+            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false) is { } again)
             {
                 totals[count - 1].Add(again);
             }
@@ -395,7 +451,7 @@ public sealed class GpuTester : IDisposable
             }
 
             Update(new GpuTestStatus("Running", totals.Count, GpuParsing.MostAtOnce, GpuParsing.RelativeSpeeds(totals), 0, count == 1 ? "One more run of one encode" : $"One more run of {count} at once", clipName));
-            if (await TimeTogetherAsync(count, encoder, clip, source, useDecoder, cancellationToken).ConfigureAwait(false) is { } third)
+            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false) is { } third)
             {
                 totals[count - 1].Add(third);
             }
@@ -409,11 +465,10 @@ public sealed class GpuTester : IDisposable
     // Runs that many encodes together and returns their total speed, in frames a second, or null if any failed.
     // Every encode starts from the same point in the film, so the only thing that changes between runs is how many
     // share the GPU. Different scenes can differ in speed by more than the thing being measured.
-    private async Task<double?> TimeTogetherAsync(int count, string encoder, (Video Item, MediaFileInfo File) clip, SourceVideo source, bool gpuDecode, CancellationToken cancellationToken)
+    private async Task<double?> TimeTogetherAsync(int count, string encoder, (string Path, double Start, bool Loop) scene, SourceVideo source, bool gpuDecode, CancellationToken cancellationToken)
     {
         var setup = _hardware.Plan(encoder, source, gpuDecode);
-        var duration = clip.File.DurationSeconds;
-        var start = Math.Max(0, Math.Min(duration * 0.3, duration - RunwaySeconds));
+        IReadOnlyList<string> beforeInput = scene.Loop ? [.. setup.Arguments, "-stream_loop", "-1"] : setup.Arguments;
         var outputs = new List<string>();
         try
         {
@@ -422,28 +477,73 @@ public sealed class GpuTester : IDisposable
             {
                 var output = Path.Combine(Path.GetTempPath(), "datamanager-gputest-" + Guid.NewGuid().ToString("N"));
                 outputs.Add(output);
-                commands.Add(FfmpegArguments.BuildSpeedTest(clip.Item.Path, output, start, 100_000, encoder, QualityPreset.Balanced, EncodeEffort.Standard, source, null, setup.Arguments));
+                commands.Add(FfmpegArguments.BuildSpeedTest(scene.Path, output, scene.Start, 100_000, encoder, QualityPreset.Balanced, EncodeEffort.Standard, source, null, beforeInput));
             }
 
-            return await _speed.TimeTogetherAsync(commands, SettleSeconds, WindowSeconds, cancellationToken).ConfigureAwait(false);
+            var usage = NvidiaUsageAsync(encoder, cancellationToken);
+            var total = await _speed.TimeTogetherAsync(commands, SettleSeconds, WindowSeconds, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Storage Optimizer's GPU test: {Count} at once with {Encoder}, decoding on the {Decoder}: {Fps:F0} frames a second in total. GPU, encoder, decoder and memory use partway through: {Usage}",
+                count,
+                encoder,
+                gpuDecode && setup.Decoder is not null ? "GPU" : "CPU",
+                total ?? 0,
+                await usage.ConfigureAwait(false));
+            return total;
         }
         finally
         {
             foreach (var output in outputs)
             {
-                try
-                {
-                    File.Delete(output);
-                }
-                catch (IOException)
-                {
-                    // A leftover temp file is swept up with the system's temp folder.
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // Same.
-                }
+                DeleteQuietly(output);
             }
+        }
+    }
+
+    // What an NVIDIA card says it's doing partway through a run, which shows whether the encoders or something else
+    // is the limit. It's only for the log, so it never gets in the way of the test.
+    private static async Task<string> NvidiaUsageAsync(string encoder, CancellationToken cancellationToken)
+    {
+        if (!encoder.EndsWith("_nvenc", StringComparison.Ordinal))
+        {
+            return "not read";
+        }
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(SettleSeconds + (WindowSeconds / 2)), cancellationToken).ConfigureAwait(false);
+            var (output, _) = await FfmpegRunner.RunAsync(
+                "nvidia-smi",
+                ["--query-gpu=utilization.gpu,utilization.encoder,utilization.decoder,memory.used", "--format=csv,noheader"],
+                TimeSpan.FromSeconds(5),
+                "read the GPU's use",
+                cancellationToken).ConfigureAwait(false);
+            return output.Trim();
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or TimeoutException)
+        {
+            return "not read";
+        }
+    }
+
+    private static double SceneStart(double duration) => Math.Max(0, Math.Min(duration * 0.3, duration - RunwaySeconds));
+
+    private static void DeleteQuietly(string? path)
+    {
+        try
+        {
+            if (path is not null)
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // A leftover temp file is swept up with the system's temp folder.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Same.
         }
     }
 
