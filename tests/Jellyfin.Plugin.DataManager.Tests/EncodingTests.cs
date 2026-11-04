@@ -128,4 +128,27 @@ public sealed class EncodingTests
         Assert.Equal(1.0, SavingsEstimator.HevcBitrateFactor("hevc"));
         Assert.True(SavingsEstimator.HevcBitrateFactor("mpeg2video") < SavingsEstimator.HevcBitrateFactor("h264"));
     }
+
+    [Fact]
+    public void RelativeSpeeds_takes_the_middle_run_so_one_odd_run_does_not_count()
+    {
+        var totals = new List<IReadOnlyList<double>> { new[] { 100.0, 104, 96 }, new[] { 190.0, 30, 186 } };
+
+        Assert.Equal(new[] { 1.0, 1.86 }, GpuParsing.RelativeSpeeds(totals));
+    }
+
+    [Fact]
+    public void RelativeSpeeds_is_empty_until_one_at_a_time_is_timed()
+    {
+        Assert.Empty(GpuParsing.RelativeSpeeds([]));
+    }
+
+    [Theory]
+    [InlineData(100, 110, false)]
+    [InlineData(100, 125, false)]
+    [InlineData(100, 160, true)]
+    public void Disagree_flags_runs_too_far_apart_to_trust(double first, double second, bool expected)
+    {
+        Assert.Equal(expected, GpuParsing.Disagree([first, second]));
+    }
 }

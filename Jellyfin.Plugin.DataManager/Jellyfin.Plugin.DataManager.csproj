@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Jellyfin.Plugin.DataManager.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The licence and third-party notices travel inside the DLL, so every copy carries them. -->
     <EmbeddedResource Include="..\LICENSE" LogicalName="LICENSE" />
     <EmbeddedResource Include="..\THIRD-PARTY-NOTICES.md" LogicalName="THIRD-PARTY-NOTICES.md" />

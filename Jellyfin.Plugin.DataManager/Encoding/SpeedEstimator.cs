@@ -638,6 +638,70 @@ public sealed class SpeedEstimator : IDisposable
         return frame > 0 ? new TestRun(frame / clock.Elapsed.TotalSeconds, 0, frame, BitsPerFrame(bytes, frame)) : null;
     }
 
+    // Runs encodes together and returns their total speed, in frames a second, or null if any failed. They're timed
+    // over one window that they all share, or else one that stopped early would leave the others more of the GPU.
+    internal async Task<double?> TimeTogetherAsync(IReadOnlyList<IList<string>> commands, double settleSeconds, double windowSeconds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_testTimeout);
+        var clock = Stopwatch.StartNew();
+        var runs = new List<TimedRun>();
+        try
+        {
+            foreach (var args in commands)
+            {
+                runs.Add(new TimedRun(_mediaEncoder.EncoderPath, args, clock));
+            }
+
+            // Encoders take their time to start, more of it with several sharing the GPU.
+            while (!runs.All(r => r.Flowing))
+            {
+                if (runs.Any(r => r.Ended))
+                {
+                    return null;
+                }
+
+                await Task.Delay(100, timeout.Token).ConfigureAwait(false);
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(settleSeconds), timeout.Token).ConfigureAwait(false);
+            var from = runs.Select(r => r.Latest).ToList();
+            var end = clock.Elapsed.TotalSeconds + windowSeconds;
+            while (clock.Elapsed.TotalSeconds < end && !runs.Any(r => r.Ended))
+            {
+                await Task.Delay(100, timeout.Token).ConfigureAwait(false);
+            }
+
+            var to = runs.Select(r => r.Latest).ToList();
+            var total = 0.0;
+            for (var i = 0; i < runs.Count; i++)
+            {
+                var seconds = to[i].Seconds - from[i].Seconds;
+                if (seconds < 1 || to[i].Frame <= from[i].Frame)
+                {
+                    return null;
+                }
+
+                total += (to[i].Frame - from[i].Frame) / seconds;
+            }
+
+            return total;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            foreach (var run in runs)
+            {
+                await run.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
     private static double? BitsPerFrame(long bytes, long frames) => bytes > 0 && frames > 0 ? bytes * 8.0 / frames : null;
 
     private void DeleteQuietly(string path)
@@ -707,4 +771,99 @@ public sealed class SpeedEstimator : IDisposable
 
     // How fast the timed frames encoded, which they were, and how many bits each took on average if known.
     internal readonly record struct TestRun(double FramesPerSecond, long FirstFrame, long LastFrame, double? BitsPerFrame);
+
+    // One ffmpeg of a timed group, keeping track of the frames it has put out.
+    private sealed class TimedRun : IAsyncDisposable
+    {
+        private readonly Process _process;
+        private readonly Stopwatch _clock;
+        private readonly Task _reader;
+        private readonly Task _errors;
+        private readonly Lock _lock = new();
+        private (long Frame, double Seconds) _latest;
+        private volatile bool _ended;
+
+        public TimedRun(string ffmpeg, IList<string> args, Stopwatch clock)
+        {
+            _clock = clock;
+            var startInfo = new ProcessStartInfo(ffmpeg)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (var arg in args)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            _process = new Process { StartInfo = startInfo };
+            _process.Start();
+            _errors = _process.StandardError.ReadToEndAsync(CancellationToken.None);
+            _reader = Task.Run(ReadAsync);
+        }
+
+        public bool Flowing
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _latest.Frame > 0;
+                }
+            }
+        }
+
+        public bool Ended => _ended;
+
+        // The last time frames came out. Frames often come out in batches, so a window runs from batch to batch.
+        public (long Frame, double Seconds) Latest
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _latest;
+                }
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            FfmpegRunner.Kill(_process);
+            await _process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.WhenAll(_reader, _errors).ConfigureAwait(false);
+            _process.Dispose();
+        }
+
+        private async Task ReadAsync()
+        {
+            long frame = 0;
+            while (await _process.StandardOutput.ReadLineAsync(CancellationToken.None).ConfigureAwait(false) is { } line)
+            {
+                if (line.StartsWith("frame=", StringComparison.Ordinal))
+                {
+                    long.TryParse(line.AsSpan(6), NumberStyles.Integer, CultureInfo.InvariantCulture, out frame);
+                }
+                else if (line.StartsWith("progress=", StringComparison.Ordinal))
+                {
+                    lock (_lock)
+                    {
+                        if (frame > _latest.Frame)
+                        {
+                            _latest = (frame, _clock.Elapsed.TotalSeconds);
+                        }
+                    }
+
+                    if (line == "progress=end")
+                    {
+                        break;
+                    }
+                }
+            }
+
+            _ended = true;
+        }
+    }
 }

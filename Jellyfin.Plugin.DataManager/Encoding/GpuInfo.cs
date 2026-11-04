@@ -334,6 +334,41 @@ internal static partial class GpuParsing
     }
 
     /// <summary>
+    /// Turns timed runs into speeds against one at a time, taking the middle run of each number at once, so one odd run doesn't count.
+    /// </summary>
+    /// <param name="totals">The total frames a second of each run: first the runs of one at a time, then of two, and so on.</param>
+    /// <returns>The speed with 1, 2, 3 and so on at once, or none if one at a time wasn't timed.</returns>
+    public static IReadOnlyList<double> RelativeSpeeds(IReadOnlyList<IReadOnlyList<double>> totals)
+    {
+        ArgumentNullException.ThrowIfNull(totals);
+
+        if (totals.Count == 0 || totals[0].Count == 0)
+        {
+            return [];
+        }
+
+        var single = Middle(totals[0]);
+        return totals.Select(runs => Math.Round(Middle(runs) / single, 2)).ToList();
+    }
+
+    /// <summary>
+    /// Finds whether runs of the same thing are too far apart to trust, which a quiet GPU doesn't do.
+    /// </summary>
+    /// <param name="runs">The total frames a second of each run.</param>
+    /// <returns>True if the fastest is over a quarter faster than the slowest.</returns>
+    public static bool Disagree(IReadOnlyList<double> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+        return runs.Count > 1 && runs.Max() > runs.Min() * 1.25;
+    }
+
+    private static double Middle(IReadOnlyList<double> runs)
+    {
+        var sorted = runs.Order().ToList();
+        return sorted.Count % 2 == 1 ? sorted[sorted.Count / 2] : (sorted[(sorted.Count / 2) - 1] + sorted[sorted.Count / 2]) / 2;
+    }
+
+    /// <summary>
     /// Writes test speeds the way the settings keep them.
     /// </summary>
     /// <param name="speeds">The speeds.</param>

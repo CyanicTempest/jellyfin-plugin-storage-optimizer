@@ -366,7 +366,7 @@
                     }
                     var canTest = gpu.Gpu.HardwareEncoding;
                     var head = t.State === 'Done' ? 'Speed test' : 'Test this GPU';
-                    var intro = running ? 'Encoding is paused while this runs, about a minute.'
+                    var intro = running ? 'Encoding is paused while this runs, about two minutes.'
                         : t.State === 'Done' ? 'Total encoding speed with one, two, three and four encodes at once, against one at a time.'
                         : (gpu.Gpu.TestHint || 'Times one to four encodes at once on a scene from your library.');
                     var message = t.Message || '';
