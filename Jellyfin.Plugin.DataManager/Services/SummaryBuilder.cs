@@ -13,9 +13,6 @@ namespace Jellyfin.Plugin.DataManager.Services;
 /// </summary>
 public class SummaryBuilder
 {
-    private const long MinimumSavingsBytes = 300L * 1024 * 1024;
-    private const double MinimumSavingsShare = 0.25;
-
     private readonly ILibraryManager _libraryManager;
     private readonly ResolutionAnalyzer _resolutionAnalyzer;
 
@@ -68,14 +65,7 @@ public class SummaryBuilder
             }
         }
 
-        // A title that already has another version (such as a kept re-encode) isn't suggested again.
-        foreach (var file in files)
-        {
-            file.IsRecommended = file.OtherVersionIds.Count == 0
-                && file.EstimatedSavingsBytes >= MinimumSavingsBytes
-                && file.EstimatedSavingsBytes >= file.SizeBytes * MinimumSavingsShare;
-        }
-
+        SuggestionRules.Apply(files);
         AddRange(summary.Files, files.OrderByDescending(f => f.EstimatedSavingsBytes).ThenByDescending(f => f.SizeBytes));
         return summary;
     }

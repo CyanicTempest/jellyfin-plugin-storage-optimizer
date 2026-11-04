@@ -658,7 +658,7 @@
                         <div class="dm-hero-top">
                             <div id="dmStats" class="dm-stats"></div>
                             <div id="dmCallout" class="dm-callout dm-hidden">
-                                <div class="dm-stat"><span id="dmFreeable" class="dm-stat-n"></span><span class="dm-stat-l">could be freed</span></div>
+                                <div class="dm-stat"><span id="dmFreeable" class="dm-stat-n"></span><span id="dmFreeableNote" class="dm-stat-l">could be freed</span></div>
                                 <button type="button" id="dmSelectSuggested" class="dm-button dm-primary">Select suggested files</button>
                             </div>
                         </div>
@@ -1516,7 +1516,12 @@
                     $('#dmStats').innerHTML = stats;
                     $('#dmCallout').classList.toggle('dm-hidden', !suggested.length);
                     $('#dmFreeable').innerHTML = statHtml(freeable);
-                    $('#dmSelectSuggested').textContent = 'Select ' + plural(suggested.length, 'suggested file');
+                    // A show counts once, so the button says the same as the list.
+                    var titles = {};
+                    suggested.forEach(function (f) { titles[isEpisode(f) ? 'show-' + (f.SeriesId || f.SeriesName) : f.ItemId] = true; });
+                    var everything = summary.Files.reduce(function (sum, f) { return sum + f.EstimatedSavingsBytes; }, 0);
+                    $('#dmFreeableNote').textContent = everything > freeable ? 'suggested, up to ' + formatBytes(everything) + ' in total' : 'suggested';
+                    $('#dmSelectSuggested').textContent = 'Select ' + plural(Object.keys(titles).length, 'suggested title');
                     renderSavingsLine();
                 }
 
@@ -1660,7 +1665,7 @@
                 // What re-encoding could free. Suggested files are in the accent colour; the rest are only worth a look.
                 function savingCell(saving, size, suggested, note) {
                     if (!(saving > 0)) { return '<div class="dm-sv dm-none">' + escapeHtml(note || 'None') + '</div>'; }
-                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="Suggested: worth re-encoding"' : '') + '>−' + escapeHtml(formatBytes(saving))
+                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.toLowerCase()) + '"' : ' title="Not suggested: saves under 300 MB, or under a quarter of its size"') + '>−' + escapeHtml(formatBytes(saving))
                         + '<small>' + (note ? escapeHtml(note) : Math.round(saving / size * 100) + '%') + '</small></div>';
                 }
 
@@ -1699,7 +1704,7 @@
                         + lead
                         + '<div class="dm-main">' + title + '<div class="dm-meta">' + fileMeta(f) + '</div></div>'
                         + sizeCell(f.SizeBytes, f.EstimatedSavingsBytes, f.VideoCodec)
-                        + savingCell(f.EstimatedSavingsBytes, f.SizeBytes, f.IsRecommended, f.EstimatedSavingsBytes > 0 ? '' : note) + '</div>';
+                        + savingCell(f.EstimatedSavingsBytes, f.SizeBytes, f.IsRecommended && (f.SuggestedReason || true), f.EstimatedSavingsBytes > 0 ? '' : note) + '</div>';
                 }
 
                 // Totals for a series or season. Every version counts toward its size, and the main versions toward the rest.
@@ -1712,7 +1717,10 @@
                         t.saving += m.EstimatedSavingsBytes;
                         t.seconds += m.DurationSeconds || 0;
                         t.bits += (m.Bitrate || 0) * (m.DurationSeconds || 0);
-                        if (m.IsRecommended) { t.suggested++; }
+                        if (m.IsRecommended) {
+                            t.suggested++;
+                            t.reason = m.SuggestedReason;
+                        }
                         var codec = (m.VideoCodec || 'unknown').toLowerCase();
                         t.codecs[codec] = (t.codecs[codec] || 0) + m.SizeBytes;
                         if (resolution(m)) { t.resolutions[resolution(m)] = true; }
@@ -1745,7 +1753,7 @@
                         + (resolutions.length === 1 ? ' · ' + escapeHtml(resolutions[0]) : '') + (t.hdr ? ' · HDR' : '') + '</span><span>' + contents + '</span>'
                         + (showWatched() ? '<span>' + escapeHtml(watchedLine(t.lastPlayed, t.dateAdded)) + '</span>' : '') + '</div></div>'
                         + sizeCell(t.size, t.saving, codecs[0])
-                        + savingCell(t.saving, t.mainSize, t.suggested > 0) + '</div>';
+                        + savingCell(t.saving, t.mainSize, t.suggested > 0 && (t.reason || true)) + '</div>';
                 }
 
                 function filterText() {

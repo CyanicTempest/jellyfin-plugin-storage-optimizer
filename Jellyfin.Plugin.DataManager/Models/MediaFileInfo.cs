@@ -66,6 +66,11 @@ public class MediaFileInfo
     /// <summary>Gets or sets a value indicating whether the file is worth re-encoding, under the current settings.</summary>
     public bool IsRecommended { get; set; }
 
+    /// <summary>
+    /// Gets or sets why the file is suggested, or null if it isn't.
+    /// </summary>
+    public string? SuggestedReason { get; set; }
+
     /// <summary>Gets or sets the height of the smallest size that keeps the file's real detail, or 0 if it hasn't been analysed.</summary>
     public int DetailHeight { get; set; }
 
