@@ -299,6 +299,8 @@
             #DataManagerDashboardPage .dm-db > p { margin: 0; }
             #DataManagerDashboardPage .dm-df { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 20px 14px 24px; border-top: 1px solid var(--dm-line); background: var(--dm-deep); flex-wrap: wrap; flex: none; }
             #DataManagerDashboardPage .dm-df-r { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+            #DataManagerDashboardPage .dm-df-mode { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 240px; text-align: center; }
+            #DataManagerDashboardPage .dm-df-mode .dm-danger-text { color: var(--dm-error); }
             #DataManagerDashboardPage .dm-df .dm-button { height: 40px; }
             #DataManagerDashboardPage .dm-df .dm-button.dm-primary,
             #DataManagerDashboardPage .dm-df .dm-button.dm-danger { padding: 0 22px; font-size: 14px; }
@@ -315,6 +317,7 @@
             #DataManagerDashboardPage .dm-blk-h span { font-size: 12px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-hint { margin: 0; font-size: 12.5px; color: var(--dm-ink-3); line-height: 1.45; }
             #DataManagerDashboardPage .dm-hint.dm-attention { color: var(--dm-warning); }
+            #DataManagerDashboardPage .dm-text-button { padding: 0; border: 0; background: none; color: var(--dm-tint-ink); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
             #DataManagerDashboardPage .dm-hint a { color: var(--dm-tint-ink); }
             #DataManagerDashboardPage .dm-hint .dm-ic { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; }
             #DataManagerDashboardPage .dm-hint.dm-failed { color: var(--dm-error); }
@@ -619,6 +622,7 @@
                 #DataManagerDashboardPage .dm-encode-preview { padding: 16px; }
                 #DataManagerDashboardPage .dm-df { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
                 #DataManagerDashboardPage .dm-df-r { width: 100%; }
+                #DataManagerDashboardPage .dm-df-mode { width: 100%; }
                 #DataManagerDashboardPage .dm-df-r .dm-button { flex: 1; }
                 #DataManagerDashboardPage .dm-result-big { font-size: 20px; }
                 #DataManagerDashboardPage .dm-level { grid-template-columns: 16px minmax(0, 1fr) 64px 70px; gap: 10px; padding: 0 8px; min-height: 40px; }
@@ -869,7 +873,6 @@
                                 </div>
                                 <div id="dmModeBlock" class="dm-blk">
                                     <div class="dm-blk-h"><h4>Original file</h4></div>
-                                    <div id="dmModeChoices" class="dm-segmented dm-fill" role="radiogroup" aria-label="Original file"></div>
                                     <p id="dmModeHint" class="dm-hint"></p>
                                     <p id="dmOutputNote" class="dm-hint"></p>
                                     <p id="dmEstimateNote" class="dm-hint"></p>
@@ -903,6 +906,10 @@
                             <div class="dm-result">
                                 <div id="dmResult" class="dm-result dm-hidden"></div>
                                 <span id="dmEstimate" class="dm-result-text"></span>
+                            </div>
+                            <div class="dm-df-mode">
+                                <div id="dmModeChoices" class="dm-segmented dm-fill" role="radiogroup" aria-label="Original file"></div>
+                                <span id="dmModeState" class="dm-hint"></span>
                             </div>
                             <div class="dm-df-r">
                                 <button type="button" id="dmDialogCancel" class="dm-button dm-quiet">Cancel</button>
@@ -2906,13 +2913,35 @@
                 function renderCodecHint() {
                     var option = (codecOptions || []).filter(function (o) { return o.Codec === currentCodec(); })[0];
                     $('#dmCodecEncoder').textContent = option ? (option.IsHardware ? option.Encoder + ', on the GPU' : option.Encoder) : '';
-                    $('#dmCodecHint').innerHTML = option ? icon('info') + escapeHtml([option.Warning || option.Summary, option.Compatibility].filter(Boolean).join(' ')) : '';
+                    if (!option) {
+                        $('#dmCodecHint').innerHTML = '';
+                        return;
+                    }
+                    // One line, with who can play it behind More.
+                    var first = option.Warning || option.Summary;
+                    var rest = option.Compatibility || '';
+                    var cut = rest.indexOf('. ');
+                    var short = cut < 0 ? rest : rest.slice(0, cut + 1);
+                    var more = rest.slice(short.length).trim();
+                    $('#dmCodecHint').innerHTML = icon('info') + escapeHtml([first, codecNoteOpen ? rest : short].filter(Boolean).join(' '))
+                        + (more ? ' <button type="button" class="dm-text-button" id="dmCodecMore" aria-expanded="' + codecNoteOpen + '">' + (codecNoteOpen ? 'Less' : 'More') + '</button>' : '');
                 }
 
+                var codecNoteOpen = false;
                 var modeSpace = { enough: true, note: '' };
 
                 function renderModeHint() {
                     var mode = checkedValue('dmMode', '');
+                    var count = allIds().length;
+                    var state = $('#dmModeState');
+                    state.textContent = mode === 'Replace' ? (count === 1 ? 'Deletes the original' : 'Deletes ' + count + ' originals')
+                        : mode === 'KeepBoth' ? (count === 1 ? 'Keeps the original' : 'Keeps ' + count + ' originals')
+                            : 'Choose what happens to the original';
+                    state.classList.toggle('dm-danger-text', mode === 'Replace');
+                    var start = $('#dmDialogStart');
+                    start.classList.toggle('dm-danger', mode === 'Replace');
+                    start.classList.toggle('dm-primary', mode !== 'Replace');
+                    start.lastChild.textContent = mode === 'Replace' ? 'Re-encode and replace' : 'Start re-encoding';
                     $('#dmModeHint').textContent = mode === 'Replace'
                         ? 'Deletes the original once the new file is checked and found smaller. This can\'t be undone.'
                         : (mode === 'KeepBoth' ? 'Adds the new file as another version, so you can compare them here and in the player.' : 'Pick what happens to the original.')
@@ -4163,10 +4192,31 @@
                     });
                 }
 
+                // Replacing can't be undone, so it asks first and lists what goes. Keeping both starts straight away.
+                function confirmStart() {
+                    var mode = checkedValue('dmMode', '');
+                    if (!mode) {
+                        $('#dmDialogWarning').innerHTML = '<li>Choose what happens to the original first.</li>';
+                        return;
+                    }
+                    if (mode !== 'Replace') {
+                        startEncode();
+                        return;
+                    }
+                    var files = selectedFiles();
+                    openConfirm({
+                        title: files.length === 1 ? 'Replace the original?' : 'Replace ' + files.length + ' originals?',
+                        body: '<p>' + (files.length === 1 ? 'The original is' : 'Each original is') + ' deleted once the new file is checked and found smaller. If a new file isn\'t smaller, nothing is deleted and you choose what to do. This can\'t be undone.</p>'
+                            + fileList(files.map(function (f) { return { name: titleOf(f), detail: f.Path, size: f.SizeBytes }; })),
+                        ok: files.length === 1 ? 'Re-encode and replace' : 'Re-encode and replace ' + files.length,
+                        action: startEncode
+                    });
+                }
+
                 function startEncode() {
                     var body = allBody();
                     $('#dmDialogStart').disabled = true;
-                    ApiClient.ajax({
+                    return ApiClient.ajax({
                         type: 'POST',
                         url: ApiClient.getUrl('DataManager/Encode'),
                         data: JSON.stringify(body),
@@ -5453,6 +5503,12 @@
                 compareViewer = makeViewer($('#dmViewer'), $('#dmCompareTools'), { maxHeight: 0.62, legend: $('#dmCompareDialog .dm-heat'), viewName: 'dmCompareView' });
                 previewViewer = makeViewer($('#dmPreviewViewer'), $('#dmPreviewTools'), { maxHeight: 0.56, legend: $('#dmDialog .dm-heat'), viewName: 'dmPreviewView', clip: true, clipSeconds: clipSeconds, onPlay: requestClip });
                 // Rows are redrawn with new numbers, so changes are caught on the containers.
+                $('#dmCodecHint').addEventListener('click', function (e) {
+                    if (e.target.id !== 'dmCodecMore') { return; }
+                    codecNoteOpen = !codecNoteOpen;
+                    renderCodecHint();
+                    $('#dmCodecMore').focus();
+                });
                 $('#dmQualityChoices').addEventListener('change', function () { wantedQuality[scopeId || 'all'] = checkedValue('dmQuality', ''); });
                 ['#dmQualityChoices', '#dmEffortChoices'].forEach(function (selector) {
                     $(selector).addEventListener('change', function () { userChanged(); renderLevels(); requestEstimate(); requestPreview(); });
@@ -5472,7 +5528,7 @@
                 $('#dmRemuxCancel').addEventListener('click', closeRemux);
                 $('#dmRemuxStart').addEventListener('click', startRemux);
                 $('#dmRemuxDialog').addEventListener('click', function (e) { if (e.target.id === 'dmRemuxDialog') { closeRemux(); } });
-                $('#dmDialogStart').addEventListener('click', startEncode);
+                $('#dmDialogStart').addEventListener('click', confirmStart);
                 $('#dmDialog').addEventListener('click', function (e) { if (e.target.id === 'dmDialog') { closeDialog(); } });
 
                 $('#dmCompareClose').addEventListener('click', closeCompare);
