@@ -1062,6 +1062,8 @@
                 var previewViewer = null;
                 var expanded = {};
                 var sets = {};
+                var filesByPath = {};
+                var filterTimer = null;
                 var leftovers = null;
                 // The library tab picked above the media list ('' for all), and how many titles of it are drawn.
                 var libraryFilter = '';
@@ -1148,11 +1150,79 @@
                     return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (s < 10 ? '0' : '') + s;
                 }
 
+                // Also escapes quotes, as the result is used inside quoted attributes.
+                var htmlEscapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
                 function escapeHtml(text) {
-                    var div = document.createElement('div');
-                    div.textContent = text == null ? '' : String(text);
-                    // Also escape quotes, as the result is used inside quoted attributes.
-                    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    return text == null ? '' : String(text).replace(/[&<>"']/g, function (c) { return htmlEscapes[c]; });
+                }
+
+                var collator = new Intl.Collator();
+
+                // Changes a node to match another, touching only what differs. Drawing a list again with innerHTML would
+                // lose hover, focus and any click that lands between two redraws.
+                function patchNode(current, next) {
+                    if (current.nodeType !== 1) {
+                        if (current.nodeValue !== next.nodeValue) { current.nodeValue = next.nodeValue; }
+                        return;
+                    }
+                    Array.prototype.slice.call(current.attributes).forEach(function (a) {
+                        if (!next.hasAttribute(a.name)) { current.removeAttribute(a.name); }
+                    });
+                    Array.prototype.slice.call(next.attributes).forEach(function (a) {
+                        if (current.getAttribute(a.name) !== a.value) { current.setAttribute(a.name, a.value); }
+                    });
+                    patchChildren(current, next);
+                }
+
+                function patchChildren(current, next) {
+                    var have = current.firstChild;
+                    var want = next.firstChild;
+                    while (want) {
+                        var following = want.nextSibling;
+                        if (!have) {
+                            current.appendChild(want);
+                        } else if (have.nodeType !== want.nodeType || have.nodeName !== want.nodeName) {
+                            var after = have.nextSibling;
+                            current.replaceChild(want, have);
+                            have = after;
+                        } else {
+                            patchNode(have, want);
+                            have = have.nextSibling;
+                        }
+                        want = following;
+                    }
+                    while (have) {
+                        var extra = have.nextSibling;
+                        current.removeChild(have);
+                        have = extra;
+                    }
+                }
+
+                // Draws rows of { key, html } into a list, reusing the row already there for each key.
+                function patchRows(list, rows) {
+                    var existing = {};
+                    Array.prototype.slice.call(list.children).forEach(function (el) { existing[el.dataset.key] = el; });
+                    var at = list.firstElementChild;
+                    rows.forEach(function (row) {
+                        var el = existing[row.key];
+                        delete existing[row.key];
+                        var template = document.createElement('template');
+                        if (!el) {
+                            template.innerHTML = row.html;
+                            el = template.content.firstElementChild;
+                            el.dataset.key = row.key;
+                            el.dmHtml = row.html;
+                        } else if (el.dmHtml !== row.html) {
+                            template.innerHTML = row.html;
+                            var next = template.content.firstElementChild;
+                            next.dataset.key = row.key;
+                            patchNode(el, next);
+                            el.dmHtml = row.html;
+                        }
+                        if (el === at) { at = at.nextElementSibling; } else { list.insertBefore(el, at); }
+                    });
+                    Object.keys(existing).forEach(function (key) { existing[key].remove(); });
                 }
 
                 function plural(count, word) {
@@ -1354,8 +1424,10 @@
                     }
                     var libraries = summary.Libraries.length ? summary.Libraries : [{ Name: 'Video', SizeBytes: summary.TotalBytes, FileCount: summary.FileCount }];
                     var largest = Math.max.apply(null, libraries.map(function (l) { return l.SizeBytes; }).concat([1]));
+                    var byLibrary = {};
+                    summary.Files.forEach(function (f) { (byLibrary[f.Library] = byLibrary[f.Library] || []).push(f); });
                     libraries.forEach(function (l) {
-                        var files = summary.Libraries.length ? summary.Files.filter(function (f) { return f.Library === l.Name; }) : summary.Files;
+                        var files = summary.Libraries.length ? byLibrary[l.Name] || [] : summary.Files;
                         addBar(bars, l.Name, codecSegments(files), formatBytes(l.SizeBytes) + ', ' + plural(l.FileCount, 'file'), l.SizeBytes / largest);
                     });
                     hasAnimated = true;
@@ -1423,9 +1495,9 @@
                     if (sort === 'size') { sorted.sort(bySize); }
                     else if (sort === 'saving') { sorted.sort(function (a, b) { return b.EstimatedSavingsBytes - a.EstimatedSavingsBytes || bySize(a, b); }); }
                     else if (sort === 'bitrate') { sorted.sort(function (a, b) { return b.Bitrate - a.Bitrate || bySize(a, b); }); }
-                    else if (sort === 'name') { sorted.sort(function (a, b) { return a.Name.localeCompare(b.Name); }); }
+                    else if (sort === 'name') { sorted.sort(function (a, b) { return collator.compare(a.Name, b.Name); }); }
                     else if (sort === 'watched') { sorted.sort(function (a, b) { return playedTime(a) - playedTime(b) || bySize(a, b); }); }
-                    else { sorted.sort(function (a, b) { return codecLabel(a.VideoCodec).localeCompare(codecLabel(b.VideoCodec)) || bySize(a, b); }); }
+                    else { sorted.sort(function (a, b) { return collator.compare(codecLabel(a.VideoCodec), codecLabel(b.VideoCodec)) || bySize(a, b); }); }
                     return sorted;
                 }
 
@@ -1465,6 +1537,7 @@
 
                 // A title's versions: the file and the others Jellyfin links to it, largest (usually the original) first.
                 function versionsOf(f) {
+                    if (!f.OtherVersionIds || !f.OtherVersionIds.length) { return [f]; }
                     var group = [f];
                     (f.OtherVersionIds || []).forEach(function (id) {
                         var other = filesById[id];
@@ -1622,7 +1695,17 @@
                     return $('#dmFilter').value.trim().toLowerCase();
                 }
 
+                // What the list shows now. Selecting asks for this often, so it's worked out once for each drawing of the list.
+                var visibleCache = null;
+                var mainIdsCache = null;
+
+                function searchText(f) {
+                    if (f.dmSearch === undefined) { f.dmSearch = (f.Name + ' ' + (f.SeriesName || '') + ' ' + f.Path).toLowerCase(); }
+                    return f.dmSearch;
+                }
+
                 function visibleFiles() {
+                    if (visibleCache) { return visibleCache; }
                     var query = filterText();
                     var files = summary.Files;
                     if (libraryFilter) {
@@ -1636,14 +1719,18 @@
                         files = files.filter(function (f) { return isUnwatched(f, days); });
                     }
                     if (query) {
-                        files = files.filter(function (f) { return (f.Name + ' ' + (f.SeriesName || '') + ' ' + f.Path).toLowerCase().indexOf(query) !== -1; });
+                        files = files.filter(function (f) { return searchText(f).indexOf(query) !== -1; });
                     }
-                    return sortFiles(files, $('#dmSort').value);
+                    visibleCache = sortFiles(files, $('#dmSort').value);
+                    return visibleCache;
                 }
 
                 // One version of each title, the main one: re-encoding or deleting every version would be wasted work, or worse.
                 function visibleMainIds() {
-                    return visibleFiles().filter(function (f) { return versionsOf(f)[0] === f; }).map(function (f) { return f.ItemId; });
+                    if (!mainIdsCache) {
+                        mainIdsCache = visibleFiles().filter(function (f) { return versionsOf(f)[0] === f; }).map(function (f) { return f.ItemId; });
+                    }
+                    return mainIdsCache;
                 }
 
                 function renderTabs() {
@@ -1662,12 +1749,57 @@
                     if (sort === 'size') { return bySize; }
                     if (sort === 'saving') { return function (a, b) { return b.saving - a.saving || bySize(a, b); }; }
                     if (sort === 'bitrate') { return function (a, b) { return b.bitrate - a.bitrate || bySize(a, b); }; }
-                    if (sort === 'name') { return function (a, b) { return a.name.localeCompare(b.name); }; }
+                    if (sort === 'name') { return function (a, b) { return collator.compare(a.name, b.name); }; }
                     if (sort === 'watched') { return function (a, b) { return a.played - b.played || bySize(a, b); }; }
-                    return function (a, b) { return a.codec.localeCompare(b.codec) || bySize(a, b); };
+                    return function (a, b) { return collator.compare(a.codec, b.codec) || bySize(a, b); };
                 }
 
-                function renderMedia() {
+                // The list is drawn a stretch at a time, as the page scrolls near the end of it. A big library has
+                // thousands of rows, and drawing them all at once is what makes filtering and sorting lag.
+                var rowChunk = 150;
+                var mediaRows = [];
+                var mediaDrawn = 0;
+                var mediaObserver = null;
+
+                function drawMoreRows(count) {
+                    var list = $('#dmMedia');
+                    var end = list.querySelector('.dm-end');
+                    if (!end) { return; }
+                    var upTo = Math.min(mediaDrawn + count, mediaRows.length);
+                    end.insertAdjacentHTML('beforebegin', mediaRows.slice(mediaDrawn, upTo).join(''));
+                    mediaDrawn = upTo;
+                    if (mediaDrawn === mediaRows.length) {
+                        end.textContent = 'All ' + plural(visibleFiles().length, 'file') + ' shown';
+                        if (mediaObserver) { mediaObserver.disconnect(); }
+                    }
+                }
+
+                function watchListEnd() {
+                    if (mediaDrawn === mediaRows.length) { return; }
+                    var end = $('#dmMedia .dm-end');
+                    if (!window.IntersectionObserver) {
+                        drawMoreRows(mediaRows.length);
+                        return;
+                    }
+                    if (!mediaObserver) {
+                        mediaObserver = new IntersectionObserver(function (seen) {
+                            if (!seen.some(function (s) { return s.isIntersecting; })) { return; }
+                            drawMoreRows(rowChunk);
+                            updateSelection();
+                            // Still in view after drawing a stretch, as on a tall window: a fresh look fires again.
+                            mediaObserver.disconnect();
+                            watchListEnd();
+                        }, { rootMargin: '600px' });
+                    }
+                    mediaObserver.observe(end);
+                }
+
+                // keepPlace draws as much as was showing, for a redraw that isn't a new list, so the page doesn't jump.
+                function renderMedia(keepPlace) {
+                    var drawnBefore = keepPlace === true ? mediaDrawn : 0;
+                    visibleCache = null;
+                    mainIdsCache = null;
+                    if (mediaObserver) { mediaObserver.disconnect(); }
                     var sort = $('#dmSort').value;
                     var files = visibleFiles();
                     if (!summary.Files.length) {
@@ -1689,12 +1821,13 @@
                     var entries = [];
                     var series = {};
                     var shown = {};
+                    var listed = new Set(files);
                     files.forEach(function (f) {
                         var versions = versionsOf(f);
                         var groupKey = versions.map(function (v) { return v.ItemId; }).sort().join('-');
                         if (shown[groupKey]) { return; }
                         // Grouped by codec, a title goes under its main version's codec.
-                        if (sort === 'type' && f !== versions[0] && files.indexOf(versions[0]) !== -1) { return; }
+                        if (sort === 'type' && f !== versions[0] && listed.has(versions[0])) { return; }
                         shown[groupKey] = true;
                         var main = versions[0];
                         var title = { main: main, versions: versions, groupKey: groupKey };
@@ -1722,12 +1855,12 @@
 
                     entries.forEach(function (entry) {
                         if (entry.title) { return; }
-                        entry.seasons.sort(function (a, b) { return seasonOrder(a.number) - seasonOrder(b.number) || a.name.localeCompare(b.name); });
+                        entry.seasons.sort(function (a, b) { return seasonOrder(a.number) - seasonOrder(b.number) || collator.compare(a.name, b.name); });
                         entry.seasons.forEach(function (season) {
                             season.titles.sort(function (a, b) {
                                 var x = a.main.EpisodeNumber == null ? 1e6 : a.main.EpisodeNumber;
                                 var y = b.main.EpisodeNumber == null ? 1e6 : b.main.EpisodeNumber;
-                                return x - y || a.main.Name.localeCompare(b.main.Name);
+                                return x - y || collator.compare(a.main.Name, b.main.Name);
                             });
                             season.totals = totals(season.titles);
                         });
@@ -1773,9 +1906,12 @@
                         });
                     });
 
-                    $('#dmMedia').innerHTML = rows.join('')
-                        + (entries.length ? '<div class="dm-more dm-end">All ' + plural(visibleFiles().length, 'file') + ' shown</div>' : '');
+                    mediaRows = rows;
+                    mediaDrawn = 0;
+                    $('#dmMedia').innerHTML = '<div class="dm-more dm-end">Showing more as you scroll</div>';
+                    drawMoreRows(Math.max(rowChunk, drawnBefore));
                     updateSelection();
+                    watchListEnd();
                 }
 
                 function groupIds(key) {
@@ -1796,7 +1932,7 @@
                     var saving = ids.reduce(function (sum, id) { return sum + (filesById[id] ? filesById[id].EstimatedSavingsBytes : 0); }, 0);
                     $('#dmDock').classList.toggle('dm-hidden', ids.length === 0);
                     page.querySelector('.dm-wrap').classList.toggle('dm-has-dock', ids.length > 0);
-                    placeDock();
+                    if (ids.length) { requestAnimationFrame(placeDock); }
                     $('#dmDockCount').textContent = plural(ids.length, 'file') + ' selected';
                     $('#dmDockDetail').innerHTML = escapeHtml(formatBytes(bytes)) + (saving > 0 ? ' · about <u>' + escapeHtml(formatBytes(saving)) + '</u> could be freed' : '');
                     ['#dmEncodeButton', '#dmRemuxButton', '#dmDeleteButton', '#dmSelectNone'].forEach(function (selector) { $(selector).disabled = ids.length === 0; });
@@ -1843,27 +1979,36 @@
                     if (!hasData) { return; }
 
                     filesById = {};
-                    summary.Files.forEach(function (f) { filesById[f.ItemId] = f; });
+                    filesByPath = {};
+                    summary.Files.forEach(function (f) { filesById[f.ItemId] = f; filesByPath[f.Path] = f; });
                     Object.keys(selected).forEach(function (id) { if (!filesById[id]) { delete selected[id]; } });
 
                     updateShowControls();
                     renderTabs();
                     renderStorage();
-                    renderMedia();
+                    renderMedia(true);
                     renderJobs(lastJobs);
                     renderExtrasLine();
                 }
 
+                // Only the first load covers the page. After that the old numbers stay up until the new ones arrive.
+                var loading = null;
+
                 function load() {
-                    Dashboard.showLoadingMsg();
-                    return ApiClient.getJSON(ApiClient.getUrl('DataManager/Summary')).then(function (data) {
+                    if (loading) { return loading; }
+                    var first = !summary || !summary.GeneratedAt;
+                    if (first) { Dashboard.showLoadingMsg(); }
+                    loading = ApiClient.getJSON(ApiClient.getUrl('DataManager/Summary')).then(function (data) {
+                        loading = null;
                         render(data);
-                        Dashboard.hideLoadingMsg();
+                        if (first) { Dashboard.hideLoadingMsg(); }
                         if (data.GeneratedAt) { return loadDuplicates(); }
                     }, function () {
-                        Dashboard.hideLoadingMsg();
+                        loading = null;
+                        if (first) { Dashboard.hideLoadingMsg(); }
                         $('#dmScanStatus').textContent = 'The storage summary didn\'t load. Reload the page to try again.';
                     });
+                    return loading;
                 }
 
                 // Reloads the summary once a running scan finishes.
@@ -4676,7 +4821,7 @@
                 // The finished re-encode, once a scan has picked it up.
                 function jobOutputFile(j) {
                     if (!summary || !summary.Files || j.State !== 'Completed' || j.Mode !== 'KeepBoth' || !j.OutputPath) { return null; }
-                    return summary.Files.filter(function (f) { return f.Path === j.OutputPath; })[0] || null;
+                    return filesByPath[j.OutputPath] || null;
                 }
 
                 // Where Jellyfin shows a title's page.
@@ -4704,7 +4849,7 @@
                     now.classList.toggle('dm-hidden', !showNow);
                     now.classList.toggle('dm-live', showNow);
                     if (showNow) { now.querySelector('span').textContent = lastStatus.Summary; }
-                    $('#dmJobs').innerHTML = jobs.map(function (j) {
+                    patchRows($('#dmJobs'), jobs.map(function (j) {
                         var output = jobOutputFile(j);
                         var what = j.IsRemux ? 'Remux' : codecLabel(j.Codec.toLowerCase()) + (j.ScaledTo ? ' ' + j.ScaledTo : '') + ' · ' + levelName(qualities, j.Quality)
                             + (j.Effort && j.Effort !== 'Standard' ? ' · ' + j.Effort.toLowerCase() : '');
@@ -4731,9 +4876,12 @@
                         } else {
                             middle = '<div class="dm-job-status dm-first ' + (j.State === 'Failed' ? 'dm-failed' : j.State === 'NeedsDecision' ? 'dm-attention' : '') + '">' + escapeHtml(jobStatus(j)) + '</div>';
                         }
-                        return '<div class="dm-job"><div><div class="dm-job-title">' + escapeHtml(j.Name) + '</div><div class="dm-job-meta">' + escapeHtml(meta) + '</div></div>'
-                            + middle + '<div class="dm-job-actions">' + actions + '</div></div>';
-                    }).join('');
+                        return {
+                            key: j.Id,
+                            html: '<div class="dm-job"><div><div class="dm-job-title">' + escapeHtml(j.Name) + '</div><div class="dm-job-meta">' + escapeHtml(meta) + '</div></div>'
+                                + middle + '<div class="dm-job-actions">' + actions + '</div></div>'
+                        };
+                    }));
                 }
 
                 function loadJobs() {
@@ -4756,7 +4904,8 @@
                                 setTimeout(function () { pollScan(true); }, 1000);
                             });
                         }
-                        if (anyActive) { jobTimer = setTimeout(loadJobs, 2000); }
+                        // A hidden tab has nobody to show progress to, so it only checks in now and then.
+                        if (anyActive) { jobTimer = setTimeout(loadJobs, document.hidden ? 20000 : 2000); }
                     });
                 }
 
@@ -4813,7 +4962,7 @@
                     var toggle = e.target.closest('.dm-versions, .dm-folder');
                     if (toggle) {
                         expanded[toggle.dataset.group] = toggle.getAttribute('aria-expanded') !== 'true';
-                        renderMedia();
+                        renderMedia(true);
                         var again = page.querySelector((toggle.classList.contains('dm-folder') ? '.dm-folder' : '.dm-versions') + '[data-group="' + toggle.dataset.group + '"]');
                         if (again) { again.focus(); }
                         return;
@@ -4875,8 +5024,12 @@
                     try { localStorage.setItem('dataManager.sort', $('#dmSort').value); } catch (e) { /* storage unavailable */ }
                     if (summary && summary.GeneratedAt) { renderMedia(); }
                 });
+                // Typing waits for a pause, so each letter doesn't redraw the list.
                 $('#dmFilter').addEventListener('input', function () {
-                    if (summary && summary.GeneratedAt) { renderMedia(); }
+                    clearTimeout(filterTimer);
+                    filterTimer = setTimeout(function () {
+                        if (summary && summary.GeneratedAt) { renderMedia(); }
+                    }, 150);
                 });
                 try {
                     var savedShow = page.querySelector('input[name="dmShow"][value="' + (localStorage.getItem('dataManager.show') || 'all') + '"]');
@@ -5018,7 +5171,14 @@
                     loadLeftovers();
                 });
 
+                // Back on the tab, progress catches up straight away.
+                document.addEventListener('visibilitychange', function () {
+                    if (!document.hidden && jobTimer) { loadJobs(); }
+                });
+
                 page.addEventListener('pagehide', function () {
+                    clearTimeout(filterTimer);
+                    if (mediaObserver) { mediaObserver.disconnect(); }
                     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
                     if (jobTimer) { clearTimeout(jobTimer); jobTimer = null; }
                     if (leftoverTimer) { clearTimeout(leftoverTimer); leftoverTimer = null; }

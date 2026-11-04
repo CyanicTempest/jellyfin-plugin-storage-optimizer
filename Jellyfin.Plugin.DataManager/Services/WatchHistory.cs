@@ -49,13 +49,27 @@ public sealed class WatchHistory
     {
         ArgumentNullException.ThrowIfNull(files);
 
-        var items = new Dictionary<string, BaseItem>(StringComparer.Ordinal);
+        // One query for each batch, as one lookup for each file is what makes a big library slow to open.
+        var ids = new Dictionary<Guid, MediaFileInfo>();
         foreach (var file in files)
         {
-            if (Guid.TryParse(file.ItemId, out var id) && _libraryManager.GetItemById(id) is { } item)
+            if (Guid.TryParse(file.ItemId, out var id))
             {
-                items[file.ItemId] = item;
-                file.DateAdded = item.DateCreated == default ? null : item.DateCreated;
+                ids[id] = file;
+            }
+        }
+
+        var items = new Dictionary<string, BaseItem>(StringComparer.Ordinal);
+        foreach (var batch in ids.Keys.Chunk(BatchSize))
+        {
+            var query = new InternalItemsQuery { ItemIds = batch, IncludeAlternateVersions = true, IncludeOwnedItems = true };
+            foreach (var item in _libraryManager.GetItemList(query))
+            {
+                if (ids.TryGetValue(item.Id, out var file))
+                {
+                    items[file.ItemId] = item;
+                    file.DateAdded = item.DateCreated == default ? null : item.DateCreated;
+                }
             }
         }
 
