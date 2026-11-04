@@ -73,6 +73,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool OnlyCountVideoTranscodes { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether, on an NVIDIA card, decoded frames stay on the GPU for the encoder instead of
+    /// being copied to system memory and back. Off unless it's switched on in the settings. It's only used for encodes that
+    /// don't scale the picture or tone map it, and a file it can't be done for is encoded the usual way.
+    /// </summary>
+    public bool KeepFramesOnGpu { get; set; }
+
+    /// <summary>
     /// Gets or sets the GPU the last test ran on, so a test of a different card isn't trusted.
     /// </summary>
     public string GpuTestedDevice { get; set; } = string.Empty;

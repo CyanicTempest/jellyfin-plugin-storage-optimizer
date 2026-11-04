@@ -22,6 +22,7 @@ public sealed class HardwareAcceleration
     // Decodes that failed on the GPU but worked on the CPU, as "hwaccel|codec|bits". They stay on the CPU until
     // Jellyfin restarts, so each encode doesn't fail once first.
     private readonly ConcurrentDictionary<string, bool> _failedDecodes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, bool> _failedKeepFrames = new(StringComparer.OrdinalIgnoreCase);
     private readonly IConfigurationManager _configurationManager;
     private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<HardwareAcceleration> _logger;
@@ -70,48 +71,124 @@ public sealed class HardwareAcceleration
     /// <param name="encoder">The encoder the encode uses.</param>
     /// <param name="source">What is known about the source video.</param>
     /// <param name="allowDecode">Whether the GPU may decode the original.</param>
+    /// <param name="keepFrames">Whether decoded frames should stay on the GPU for the encoder. This only happens with NVIDIA's decoder and encoder, and not for a file that failed that way before.</param>
     /// <returns>The setup.</returns>
-    public HardwareSetup Plan(string encoder, SourceVideo source, bool allowDecode = true)
+    public HardwareSetup Plan(string encoder, SourceVideo source, bool allowDecode = true, bool keepFrames = false)
     {
+        ArgumentNullException.ThrowIfNull(encoder);
         ArgumentNullException.ThrowIfNull(source);
 
         var options = _configurationManager.GetEncodingOptions();
         var hwaccel = allowDecode ? DecodeWith(options, source) : null;
-        var args = EncoderSelector.HardwareArguments(options.HardwareAccelerationType, encoder, hwaccel, DevicePath(options), OperatingSystem.IsWindows());
-        return new HardwareSetup(args, hwaccel);
+        var keep = keepFrames
+            && hwaccel is not null
+            && options.HardwareAccelerationType == HardwareAccelerationType.nvenc
+            && encoder.EndsWith("_nvenc", StringComparison.Ordinal)
+            && !_failedKeepFrames.ContainsKey(FailureKey("frames-on-gpu", source));
+        var args = EncoderSelector.HardwareArguments(options.HardwareAccelerationType, encoder, hwaccel, DevicePath(options), OperatingSystem.IsWindows(), keep);
+        return new HardwareSetup(args, hwaccel, keep);
     }
 
     /// <summary>
-    /// Runs an ffmpeg job with the GPU decoding when it can, and runs it again decoding on the CPU if it fails.
+    /// Runs an ffmpeg job the best way the GPU allows, and the next way down if that fails: frames kept on the GPU (when
+    /// asked for), then decoding on the GPU with frames copied to system memory, then decoding on the CPU.
     /// </summary>
     /// <typeparam name="T">What the job returns.</typeparam>
     /// <param name="encoder">The encoder the job uses.</param>
     /// <param name="source">What is known about the source video.</param>
     /// <param name="run">Runs ffmpeg with the setup's arguments before the input. Throws <see cref="InvalidOperationException"/> when ffmpeg fails.</param>
-    /// <param name="onFallback">Called before the run on the CPU, if there is one.</param>
+    /// <param name="onFallback">Called with the setup about to be tried, before each run after the first.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="keepFrames">Whether to try keeping decoded frames on the GPU first. Only for NVIDIA, and only for a job that doesn't scale or tone map the picture.</param>
     /// <returns>What the job returned.</returns>
-    public async Task<T> RunAsync<T>(string encoder, SourceVideo source, Func<HardwareSetup, Task<T>> run, Action? onFallback, CancellationToken cancellationToken)
+    public async Task<T> RunAsync<T>(string encoder, SourceVideo source, Func<HardwareSetup, Task<T>> run, Action<HardwareSetup>? onFallback, CancellationToken cancellationToken, bool keepFrames = false)
     {
         ArgumentNullException.ThrowIfNull(run);
 
-        var setup = Plan(encoder, source);
-        if (setup.Decoder is null)
+        var plans = new List<HardwareSetup>();
+        if (keepFrames && Plan(encoder, source, true, true) is { FramesOnGpu: true } kept)
         {
-            return await run(setup).ConfigureAwait(false);
+            plans.Add(kept);
         }
 
-        try
+        var gpu = Plan(encoder, source);
+        plans.Add(gpu);
+        if (gpu.Decoder is not null)
         {
-            return await run(setup).ConfigureAwait(false);
+            plans.Add(Plan(encoder, source, false));
         }
-        catch (InvalidOperationException ex) when (!cancellationToken.IsCancellationRequested)
+
+        var (result, failed) = await RunAsync(
+            plans,
+            run,
+            (plan, next, ex) =>
+            {
+                _logger.LogWarning(
+                    "Storage Optimizer could not use {Way} for {Codec}, so it is trying again {Next}: {Error}",
+                    plan.FramesOnGpu ? "frames kept on the GPU" : "decoding on the " + plan.Decoder,
+                    source.Codec,
+                    next.Decoder is null ? "decoding on the CPU" : "copying frames to system memory",
+                    ex.Message);
+                onFallback?.Invoke(next);
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // Only now is it clear the way that failed was the problem, and not the file or the encode itself.
+        foreach (var plan in failed)
         {
-            _logger.LogWarning("Storage Optimizer could not decode {Codec} with {Hwaccel}, so it is trying again decoding on the CPU: {Error}", source.Codec, setup.Decoder, ex.Message);
-            onFallback?.Invoke();
-            var result = await run(Plan(encoder, source, false)).ConfigureAwait(false);
-            DecodeFailed(setup, source);
-            return result;
+            if (plan.FramesOnGpu)
+            {
+                KeepFramesFailed(source);
+            }
+            else
+            {
+                DecodeFailed(plan, source);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Tries each setup in turn, moving on to the next when ffmpeg fails with one.
+    /// </summary>
+    /// <typeparam name="T">What the job returns.</typeparam>
+    /// <param name="plans">The setups, best first. There is at least one.</param>
+    /// <param name="run">Runs the job with a setup. Throws <see cref="InvalidOperationException"/> when ffmpeg fails.</param>
+    /// <param name="onFallback">Called with the setup that failed, the one about to be tried and what went wrong.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>What the job returned, and the setups that failed before the one that worked.</returns>
+    internal static async Task<(T Result, IReadOnlyList<HardwareSetup> Failed)> RunAsync<T>(IReadOnlyList<HardwareSetup> plans, Func<HardwareSetup, Task<T>> run, Action<HardwareSetup, HardwareSetup, InvalidOperationException>? onFallback, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(plans);
+        ArgumentNullException.ThrowIfNull(run);
+
+        var failed = new List<HardwareSetup>();
+        for (var i = 0; ; i++)
+        {
+            try
+            {
+                return (await run(plans[i]).ConfigureAwait(false), failed);
+            }
+            catch (InvalidOperationException ex) when (!cancellationToken.IsCancellationRequested && i < plans.Count - 1)
+            {
+                failed.Add(plans[i]);
+                onFallback?.Invoke(plans[i], plans[i + 1], ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Notes that keeping frames on the GPU failed for a file the usual way could do, so files like it use the usual way from now on.
+    /// </summary>
+    /// <param name="source">The source video.</param>
+    public void KeepFramesFailed(SourceVideo source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (_failedKeepFrames.TryAdd(FailureKey("frames-on-gpu", source), true))
+        {
+            _logger.LogWarning("Storage Optimizer will copy frames to system memory for {Bits}-bit {Codec} until Jellyfin restarts, because keeping them on the GPU failed", source.IsTenBit ? 10 : 8, source.Codec);
         }
     }
 
@@ -167,7 +244,8 @@ public sealed class HardwareAcceleration
 /// </summary>
 /// <param name="Arguments">The ffmpeg arguments that set up the GPU, which go before the input.</param>
 /// <param name="Decoder">The ffmpeg hwaccel that decodes the original, such as cuda, or null when the CPU decodes it.</param>
-public sealed record HardwareSetup(IReadOnlyList<string> Arguments, string? Decoder)
+/// <param name="FramesOnGpu">Whether decoded frames stay on the GPU for the encoder, which the arguments that follow must allow for.</param>
+public sealed record HardwareSetup(IReadOnlyList<string> Arguments, string? Decoder, bool FramesOnGpu = false)
 {
     /// <summary>Gets a setup that leaves everything to the CPU.</summary>
     public static HardwareSetup None { get; } = new([], null);

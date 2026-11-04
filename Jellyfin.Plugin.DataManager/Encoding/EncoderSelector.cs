@@ -107,8 +107,9 @@ public static class EncoderSelector
     /// <param name="hwaccel">The hwaccel that decodes the source, or null when the CPU decodes it.</param>
     /// <param name="devicePath">The Intel GPU's render node on Linux, such as /dev/dri/renderD128.</param>
     /// <param name="isWindows">Whether the server runs on Windows.</param>
+    /// <param name="keepFramesOnGpu">Whether decoded frames stay on the GPU for the encoder, instead of being copied to system memory first. Only NVIDIA's decoder and encoder do this, and the picture can't be scaled or tone mapped on the CPU after it.</param>
     /// <returns>The arguments, one per entry.</returns>
-    public static IReadOnlyList<string> HardwareArguments(HardwareAccelerationType hardware, string encoder, string? hwaccel, string devicePath, bool isWindows)
+    public static IReadOnlyList<string> HardwareArguments(HardwareAccelerationType hardware, string encoder, string? hwaccel, string devicePath, bool isWindows, bool keepFramesOnGpu = false)
     {
         ArgumentNullException.ThrowIfNull(encoder);
 
@@ -118,6 +119,10 @@ public static class EncoderSelector
             if (hwaccel is not null)
             {
                 args.AddRange(["-hwaccel", hwaccel]);
+                if (keepFramesOnGpu)
+                {
+                    args.AddRange(["-hwaccel_output_format", hwaccel]);
+                }
             }
 
             return args;

@@ -1283,22 +1283,31 @@ public sealed class EncodeService : IDisposable
                 sourceInfo,
                 async hw =>
                 {
-                    if (hw.Decoder is not null)
+                    if (hw.FramesOnGpu)
+                    {
+                        job.Message = "Encoding with " + encoder + ", keeping frames on the GPU…";
+                    }
+                    else if (hw.Decoder is not null)
                     {
                         job.Message = "Encoding with " + encoder + ", decoding on the GPU…";
                     }
 
-                    var args = FfmpegArguments.Build(source.FullName, tempPath, encoder, job.Quality, job.Effort, sourceInfo, container, scaleTo, tags, hw.Arguments, tracks, extras);
+                    var args = FfmpegArguments.Build(source.FullName, tempPath, encoder, job.Quality, job.Effort, sourceInfo, container, scaleTo, tags, hw.Arguments, tracks, extras, hw.FramesOnGpu);
                     await RunFfmpegAsync(args, duration, (long)size.Width * size.Height, job, cancellationToken).ConfigureAwait(false);
                     return true;
                 },
-                () =>
+                next =>
                 {
                     job.Progress = 0;
                     job.RemainingSeconds = null;
-                    job.Message = "The GPU couldn't decode this file, so decoding on the CPU and encoding with " + encoder + "…";
+                    job.Message = next.Decoder is null
+                        ? "The GPU couldn't decode this file, so decoding on the CPU and encoding with " + encoder + "…"
+                        : "Keeping frames on the GPU didn't work for this file, so copying them back and encoding with " + encoder + "…";
                 },
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+
+                // Scaling and tone mapping run on the CPU, which wants the frames in system memory.
+                keepFrames: config.KeepFramesOnGpu && scaleTo is null && !extras.ToneMap).ConfigureAwait(false);
 
             // The new file's video, without the copied audio, against what the rule of thumb expected. Tone mapping
             // slows encoding down, so its speed would mislead estimates for plain encodes and isn't kept.

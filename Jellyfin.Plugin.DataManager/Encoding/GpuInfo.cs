@@ -398,6 +398,31 @@ internal static partial class GpuParsing
             : string.Create(CultureInfo.InvariantCulture, $"Encoding your film reaches only {Math.Round(share * 100):0}% of what the encoder alone does ({numbers}), so reading or decoding the film is holding it back. That points to a slow drive or network share, or decoding on the CPU.");
     }
 
+    /// <summary>
+    /// Says whether keeping decoded frames on the GPU was worth it, from the same scene run both ways.
+    /// </summary>
+    /// <param name="film">Total frames a second with 1, 2, 3 and so on at once, with frames copied to system memory.</param>
+    /// <param name="onGpu">The same with frames kept on the GPU, or none when it failed.</param>
+    /// <returns>A sentence.</returns>
+    public static string CompareFramesOnGpu(IReadOnlyList<double> film, IReadOnlyList<double> onGpu)
+    {
+        ArgumentNullException.ThrowIfNull(film);
+        ArgumentNullException.ThrowIfNull(onGpu);
+
+        if (onGpu.Count == 0 || film.Count == 0)
+        {
+            return "Keeping frames on the GPU didn't work with your card and this film, so turning it on would only make encodes fall back to the usual way.";
+        }
+
+        var change = (onGpu.Max() / film.Max()) - 1;
+        var numbers = string.Create(CultureInfo.InvariantCulture, $"{Math.Round(onGpu.Max()):0} against {Math.Round(film.Max()):0} frames a second at best");
+        return change >= 0.10
+            ? string.Create(CultureInfo.InvariantCulture, $"Keeping frames on the GPU was about {Math.Round(change * 100):0}% faster ({numbers}). It's worth turning on below.")
+            : change <= -0.05
+                ? string.Create(CultureInfo.InvariantCulture, $"Keeping frames on the GPU was about {Math.Round(-change * 100):0}% slower ({numbers}), so leave it off.")
+                : "Keeping frames on the GPU made little difference (" + numbers + "), so there's no need to turn it on.";
+    }
+
     private static double Middle(IReadOnlyList<double> runs)
     {
         var sorted = runs.Order().ToList();

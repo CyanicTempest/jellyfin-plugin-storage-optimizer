@@ -31,8 +31,9 @@ public static class FfmpegArguments
     /// <param name="hardware">Arguments that set up the GPU, which go before the input, or null for none.</param>
     /// <param name="tracks">The audio and subtitle tracks to keep, or null to keep them all.</param>
     /// <param name="extras">Audio conversion, HDR and attachment choices, or null for none.</param>
+    /// <param name="framesOnGpu">Whether the GPU decodes the video and its frames go to the encoder without leaving the GPU.</param>
     /// <returns>The arguments, one per entry.</returns>
-    public static IList<string> Build(string inputPath, string outputPath, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, string outputContainer, (int Width, int Height)? scaleTo = null, EmbeddedTags? tags = null, IReadOnlyList<string>? hardware = null, TrackPlan? tracks = null, EncodeExtras? extras = null)
+    public static IList<string> Build(string inputPath, string outputPath, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, string outputContainer, (int Width, int Height)? scaleTo = null, EmbeddedTags? tags = null, IReadOnlyList<string>? hardware = null, TrackPlan? tracks = null, EncodeExtras? extras = null, bool framesOnGpu = false)
     {
         ArgumentNullException.ThrowIfNull(encoder);
         ArgumentNullException.ThrowIfNull(source);
@@ -93,7 +94,7 @@ public static class FfmpegArguments
         }
 
         var copy = encoder == CopyVideo;
-        args.AddRange(copy ? ["-c:v:0", "copy"] : VideoArguments(encoder, quality, effort, source, scaleTo, extras.ToneMap));
+        args.AddRange(copy ? ["-c:v:0", "copy"] : VideoArguments(encoder, quality, effort, source, scaleTo, extras.ToneMap, framesOnGpu));
 
         // Dolby Vision's enhancement layer (NAL type 63) and metadata (62) ride inside the HEVC video; removing them,
         // and the record that says they're there, leaves the HDR10 or HLG picture beneath.
@@ -176,8 +177,9 @@ public static class FfmpegArguments
     /// <param name="source">What is known about the source video.</param>
     /// <param name="scaleTo">The size to scale the video to, or null to keep its size.</param>
     /// <param name="hardware">Arguments that set up the GPU, which go before the input, or null for none.</param>
+    /// <param name="framesOnGpu">Whether the GPU decodes the video and its frames go to the encoder without leaving the GPU.</param>
     /// <returns>The arguments, one per entry.</returns>
-    public static IList<string> BuildSpeedTest(string inputPath, string outputPath, double startSeconds, int frames, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, IReadOnlyList<string>? hardware = null)
+    public static IList<string> BuildSpeedTest(string inputPath, string outputPath, double startSeconds, int frames, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, IReadOnlyList<string>? hardware = null, bool framesOnGpu = false)
     {
         ArgumentNullException.ThrowIfNull(encoder);
         ArgumentNullException.ThrowIfNull(source);
@@ -189,7 +191,7 @@ public static class FfmpegArguments
             "-ss", startSeconds.ToString("0.###", CultureInfo.InvariantCulture), "-i", inputPath,
             "-map", "0:V:0", "-frames:v", frames.ToString(CultureInfo.InvariantCulture)
         ]);
-        args.AddRange(VideoArguments(encoder, quality, effort, source, scaleTo));
+        args.AddRange(VideoArguments(encoder, quality, effort, source, scaleTo, false, framesOnGpu));
         // Each frame is written as it comes out, so the bytes written so far match the frames encoded so far.
         args.AddRange(["-an", "-sn", "-progress", "pipe:1", "-stats_period", "0.5", "-nostats", "-flush_packets", "1", "-f", BareFormat(encoder), outputPath]);
         return args;
@@ -313,9 +315,14 @@ public static class FfmpegArguments
         return VideoArguments(encoder, quality, effort, source, null);
     }
 
-    private static List<string> VideoArguments(string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, bool toneMap = false)
+    private static List<string> VideoArguments(string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, bool toneMap = false, bool framesOnGpu = false)
     {
         var args = new List<string> { "-c:v", encoder };
+
+        // Frames kept on the GPU go to the encoder as they are, in the format the decoder made them. Scaling and tone
+        // mapping here run on the CPU, which wants the frames in system memory, so they never go together; and the
+        // pixel format is already right, so asking for one would make ffmpeg copy them back to change it.
+        framesOnGpu = framesOnGpu && scaleTo is null && !toneMap;
         args.AddRange(QualityArguments(encoder, quality, effort));
 
         // Tone mapping only applies to HDR; afterwards the picture is SDR. H.264 is kept 8-bit, as players expect;
@@ -356,7 +363,7 @@ public static class FfmpegArguments
             args.AddRange(["-filter:v:0", string.Join(',', filters)]);
         }
 
-        if (tenBit && !vaapi)
+        if (tenBit && !vaapi && !framesOnGpu)
         {
             args.AddRange(["-pix_fmt", pixelFormat]);
         }

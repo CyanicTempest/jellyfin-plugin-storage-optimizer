@@ -189,6 +189,10 @@
                         </div>
                     </div>
                     <div class="dm-test" id="dmcTest"></div>
+                    <label class="dm-srow dm-hidden" id="dmcKeepFramesRow" for="dmcKeepFrames">
+                        <div class="dm-srow-tx"><b id="dmcKeepFramesLabel">Keep frames on the GPU</b><span id="dmcKeepFramesNote"></span></div>
+                        <button type="button" id="dmcKeepFrames" class="dm-switch" role="switch" aria-checked="false" aria-labelledby="dmcKeepFramesLabel"></button>
+                    </label>
                     <div class="dm-infoln dm-hidden" id="dmcGpuNote"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p></p></div>
                 </section>
 
@@ -293,13 +297,14 @@
                 var saved = null;
                 var current = null;
                 var keys = ['DefaultQuality', 'DefaultCodec', 'DefaultEffort', 'KeepOriginalWhenSpaceAllows', 'WriteMetadata', 'Naming', 'MovieNameTemplate', 'EpisodeNameTemplate'];
-                keys.push('EncodesAtOnce', 'WhenWatching', 'ResumeAfterSeconds', 'OnlyCountVideoTranscodes');
+                keys.push('EncodesAtOnce', 'WhenWatching', 'ResumeAfterSeconds', 'OnlyCountVideoTranscodes', 'KeepFramesOnGpu');
                 choices.WhenWatching = [['KeepEncoding', 'Keep encoding'], ['LeaveRoom', 'Leave room for them'], ['Pause', 'Pause encoding']];
                 choices.ResumeAfterSeconds = [[0, 'Right away'], [60, '1 minute'], [300, '5 minutes']];
                 names.EncodesAtOnce = 'Encodes at once';
                 names.WhenWatching = 'When someone is watching';
                 names.ResumeAfterSeconds = 'Carry on after';
                 names.OnlyCountVideoTranscodes = 'Only count streams that transcode video';
+                names.KeepFramesOnGpu = 'Keep frames on the GPU';
 
                 var gpu = null;
                 var gpuTimer = null;
@@ -410,6 +415,17 @@
                         + (running ? '<p class="dm-test-sub">' + escapeHtml(t.Clip ? 'Using ' + t.Clip : 'Choosing a scene') + '</p>' : '');
                 }
 
+                // Only NVIDIA cards can keep decoded frames on the GPU, so the choice only shows for them.
+                function renderKeepFrames() {
+                    var nvidia = !!gpu && gpu.Gpu.Acceleration === 'NVENC' && gpu.Gpu.HardwareEncoding;
+                    $('#dmcKeepFramesRow').classList.toggle('dm-hidden', !nvidia);
+                    if (!nvidia || !current) { return; }
+                    var onGpu = gpu.Test && (gpu.Test.Passes || []).some(function (p) { return p.Name === 'OnGpu'; });
+                    $('#dmcKeepFramesNote').textContent = 'Frames the GPU decodes stay on it until they\'re encoded, instead of being copied to memory and back. It only applies to encodes that keep the film\'s size and colours, and a file it can\'t be done for is encoded the usual way. '
+                        + (onGpu ? 'See the speed test above for whether it helps on your card.' : 'Run the speed test to see whether it helps on your card.');
+                    $('#dmcKeepFrames').setAttribute('aria-checked', current.KeepFramesOnGpu ? 'true' : 'false');
+                }
+
                 function renderWatching() {
                     var policy = current.WhenWatching;
                     $('#dmcWatchNote').textContent = policy === 'KeepEncoding' ? 'Encoding carries on at full speed. A stream can stutter if the GPU is busy.'
@@ -434,7 +450,7 @@
                 function loadGpu() {
                     return ApiClient.getJSON(ApiClient.getUrl('DataManager/Gpu')).then(function (data) {
                         gpu = data;
-                        renderGpu(); renderAtOnce(); renderTest();
+                        renderGpu(); renderAtOnce(); renderTest(); renderKeepFrames();
                         clearTimeout(gpuTimer);
                         if (data.Test && data.Test.State === 'Running') { gpuTimer = setTimeout(loadGpu, 1500); }
                     }, function () {
@@ -465,7 +481,7 @@
                         var hit = list.filter(function (c) { return c[0] === value; })[0];
                         return hit ? hit[1] : String(value);
                     }
-                    if (key === 'WriteMetadata' || key === 'OnlyCountVideoTranscodes') { return value ? 'On' : 'Off'; }
+                    if (key === 'WriteMetadata' || key === 'OnlyCountVideoTranscodes' || key === 'KeepFramesOnGpu') { return value ? 'On' : 'Off'; }
                     if (key === 'EncodesAtOnce') { return value ? String(value) : 'Recommended'; }
                     return '"' + value + '"';
                 }
@@ -611,6 +627,7 @@
                     renderNaming();
                     renderAtOnce();
                     renderWatching();
+                    renderKeepFrames();
                     renderDock();
                 }
 
@@ -699,7 +716,8 @@
                         EncodesAtOnce: Math.max(0, Math.min(4, +config.EncodesAtOnce || 0)),
                         WhenWatching: config.WhenWatching || 'LeaveRoom',
                         ResumeAfterSeconds: config.ResumeAfterSeconds === undefined || config.ResumeAfterSeconds === null ? 60 : +config.ResumeAfterSeconds,
-                        OnlyCountVideoTranscodes: config.OnlyCountVideoTranscodes !== false
+                        OnlyCountVideoTranscodes: config.OnlyCountVideoTranscodes !== false,
+                        KeepFramesOnGpu: !!config.KeepFramesOnGpu
                     };
                 }
 
@@ -734,6 +752,7 @@
                 $('#dmcAtOnceDown').addEventListener('click', function () { step(-1); });
                 $('#dmcAtOnceUp').addEventListener('click', function () { step(1); });
                 $('#dmcVideoOnly').addEventListener('click', function () { pick('OnlyCountVideoTranscodes', !current.OnlyCountVideoTranscodes); });
+                $('#dmcKeepFrames').addEventListener('click', function () { pick('KeepFramesOnGpu', !current.KeepFramesOnGpu); });
 
                 $('#dmcTest').addEventListener('click', function (e) {
                     if (e.target.closest('#dmcTestStart')) {

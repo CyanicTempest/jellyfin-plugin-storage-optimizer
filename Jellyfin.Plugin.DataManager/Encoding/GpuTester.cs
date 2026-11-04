@@ -382,6 +382,7 @@ public sealed class GpuTester : IDisposable
                 Summary(speeds.Speeds),
                 speeds.DecoderNote,
                 speeds.Diagnosis,
+                speeds.FramesNote,
                 speeds.Steady ? null : "Some runs gave different speeds, so something else may have been using the GPU. It's worth testing again when the server is quiet."
             }.Where(t => !string.IsNullOrEmpty(t)));
         var config = Plugin.Instance?.Configuration;
@@ -455,11 +456,11 @@ public sealed class GpuTester : IDisposable
         // the disk cache. It also tells which way the GPU decodes this film: on the GPU if that works, otherwise on the CPU.
         Update(new GpuTestStatus("Running", 0, GpuParsing.MostAtOnce, [], 0, "Warming up", clipName));
         var useDecoder = true;
-        var warmUp = await TimeTogetherAsync(1, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false);
+        var warmUp = await TimeTogetherAsync(1, encoder, scene, source, useDecoder, false, cancellationToken).ConfigureAwait(false);
         if (warmUp is null)
         {
             useDecoder = false;
-            warmUp = await TimeTogetherAsync(1, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false);
+            warmUp = await TimeTogetherAsync(1, encoder, scene, source, useDecoder, false, cancellationToken).ConfigureAwait(false);
         }
 
         if (warmUp is null)
@@ -478,7 +479,7 @@ public sealed class GpuTester : IDisposable
         for (var count = 1; count <= GpuParsing.MostAtOnce; count++)
         {
             Update(new GpuTestStatus("Running", count - 1, GpuParsing.MostAtOnce, GpuParsing.RelativeSpeeds(totals), 0, count == 1 ? "Timing one encode" : $"Timing {count} at once", clipName));
-            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false) is not { } total)
+            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, false, cancellationToken).ConfigureAwait(false) is not { } total)
             {
                 if (count == 1)
                 {
@@ -495,7 +496,7 @@ public sealed class GpuTester : IDisposable
         for (var count = totals.Count; count >= 1; count--)
         {
             Update(new GpuTestStatus("Running", totals.Count, GpuParsing.MostAtOnce, GpuParsing.RelativeSpeeds(totals), 0, count == 1 ? "Checking one encode again" : $"Checking {count} at once again", clipName));
-            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false) is { } again)
+            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, false, cancellationToken).ConfigureAwait(false) is { } again)
             {
                 totals[count - 1].Add(again);
             }
@@ -510,7 +511,7 @@ public sealed class GpuTester : IDisposable
             }
 
             Update(new GpuTestStatus("Running", totals.Count, GpuParsing.MostAtOnce, GpuParsing.RelativeSpeeds(totals), 0, count == 1 ? "One more run of one encode" : $"One more run of {count} at once", clipName));
-            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, cancellationToken).ConfigureAwait(false) is { } third)
+            if (await TimeTogetherAsync(count, encoder, scene, source, useDecoder, false, cancellationToken).ConfigureAwait(false) is { } third)
             {
                 totals[count - 1].Add(third);
             }
@@ -529,7 +530,27 @@ public sealed class GpuTester : IDisposable
             passes.Add(new GpuTestPass("Encoder", "Encoder alone", encoderOnly));
         }
 
-        return new Trials(speeds, null, steady, passes, decoder, decoderNote, GpuParsing.Diagnose(encoderOnly, passes[0].Fps));
+        // On NVIDIA, the film once more with the decoded frames kept on the GPU instead of copied to system memory and back.
+        string? framesNote = null;
+        if (encoder.EndsWith("_nvenc", StringComparison.Ordinal))
+        {
+            if (!gpuDecodes)
+            {
+                framesNote = "Keeping frames on the GPU needs the GPU to decode your film, and here it doesn't.";
+            }
+            else if (_hardware.Plan(encoder, source, true, true).FramesOnGpu)
+            {
+                var onGpu = await TimePassAsync("Timing with frames kept on the GPU", speeds, passes, count => TimeTogetherAsync(count, encoder, scene, source, true, true, cancellationToken), clipName, frameRate, decoder, cancellationToken).ConfigureAwait(false);
+                if (onGpu.Count > 0)
+                {
+                    passes.Add(new GpuTestPass("OnGpu", "Frames kept on the GPU", onGpu));
+                }
+
+                framesNote = GpuParsing.CompareFramesOnGpu(passes[0].Fps, onGpu);
+            }
+        }
+
+        return new Trials(speeds, null, steady, passes, decoder, decoderNote, GpuParsing.Diagnose(encoderOnly, passes[0].Fps), framesNote);
     }
 
     // Times one, two, three and four at once, once each, and returns the total frames a second of each. It stops at
@@ -583,9 +604,9 @@ public sealed class GpuTester : IDisposable
     // Runs that many encodes together and returns their total speed, in frames a second, or null if any failed.
     // Every encode starts from the same point in the film, so the only thing that changes between runs is how many
     // share the GPU. Different scenes can differ in speed by more than the thing being measured.
-    private async Task<double?> TimeTogetherAsync(int count, string encoder, (string Path, double Start, bool Loop) scene, SourceVideo source, bool gpuDecode, CancellationToken cancellationToken)
+    private async Task<double?> TimeTogetherAsync(int count, string encoder, (string Path, double Start, bool Loop) scene, SourceVideo source, bool gpuDecode, bool keepFrames, CancellationToken cancellationToken)
     {
-        var setup = _hardware.Plan(encoder, source, gpuDecode);
+        var setup = _hardware.Plan(encoder, source, gpuDecode, keepFrames);
         IReadOnlyList<string> beforeInput = scene.Loop ? [.. setup.Arguments, "-stream_loop", "-1"] : setup.Arguments;
         var outputs = new List<string>();
         try
@@ -595,16 +616,17 @@ public sealed class GpuTester : IDisposable
             {
                 var output = Path.Combine(Path.GetTempPath(), "datamanager-gputest-" + Guid.NewGuid().ToString("N"));
                 outputs.Add(output);
-                commands.Add(FfmpegArguments.BuildSpeedTest(scene.Path, output, scene.Start, 100_000, encoder, QualityPreset.Balanced, EncodeEffort.Standard, source, null, beforeInput));
+                commands.Add(FfmpegArguments.BuildSpeedTest(scene.Path, output, scene.Start, 100_000, encoder, QualityPreset.Balanced, EncodeEffort.Standard, source, null, beforeInput, setup.FramesOnGpu));
             }
 
             var usage = NvidiaUsageAsync(encoder, cancellationToken);
             var total = await _speed.TimeTogetherAsync(commands, SettleSeconds, WindowSeconds, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation(
-                "Storage Optimizer's GPU test: {Count} at once with {Encoder}, decoding on the {Decoder}: {Fps:F0} frames a second in total. GPU, encoder, decoder and memory use partway through: {Usage}",
+                "Storage Optimizer's GPU test: {Count} at once with {Encoder}, decoding on the {Decoder}{Kept}: {Fps:F0} frames a second in total. GPU, encoder, decoder and memory use partway through: {Usage}",
                 count,
                 encoder,
                 gpuDecode && setup.Decoder is not null ? "GPU" : "CPU",
+                setup.FramesOnGpu ? ", frames kept on the GPU" : string.Empty,
                 total ?? 0,
                 await usage.ConfigureAwait(false));
             return total;
@@ -665,8 +687,8 @@ public sealed class GpuTester : IDisposable
         }
     }
 
-    private sealed record Trials(IReadOnlyList<double> Speeds, string? Failure, bool Steady, IReadOnlyList<GpuTestPass> Passes, string Decoder, string? DecoderNote, string? Diagnosis)
+    private sealed record Trials(IReadOnlyList<double> Speeds, string? Failure, bool Steady, IReadOnlyList<GpuTestPass> Passes, string Decoder, string? DecoderNote, string? Diagnosis, string? FramesNote)
     {
-        public static Trials Fail(string message) => new([], message, false, [], string.Empty, null, null);
+        public static Trials Fail(string message) => new([], message, false, [], string.Empty, null, null, null);
     }
 }

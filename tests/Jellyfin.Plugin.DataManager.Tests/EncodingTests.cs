@@ -233,4 +233,102 @@ public sealed class EncodingTests
         Assert.Equal("testsrc2=size=3840x2160:rate=24:duration=1,loop=loop=-1:size=12:start=0", args[args.IndexOf("-i") + 1]);
         Assert.Equal("/tmp/out", args[^1]);
     }
+
+    [Fact]
+    public void HardwareArguments_keep_frames_on_the_card_only_when_asked_and_decoding_there()
+    {
+        var kept = EncoderSelector.HardwareArguments(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, "hevc_nvenc", "cuda", string.Empty, false, true);
+        var copied = EncoderSelector.HardwareArguments(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, "hevc_nvenc", "cuda", string.Empty, false);
+        var cpuDecode = EncoderSelector.HardwareArguments(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, "hevc_nvenc", null, string.Empty, false, true);
+
+        Assert.Equal(new[] { "-hwaccel", "cuda", "-hwaccel_output_format", "cuda" }, kept);
+        Assert.Equal(new[] { "-hwaccel", "cuda" }, copied);
+        Assert.Empty(cpuDecode);
+    }
+
+    [Fact]
+    public void Build_leaves_out_the_pixel_format_when_frames_stay_on_the_gpu()
+    {
+        var tenBit = _plainSource with { IsTenBit = true };
+
+        var copied = FfmpegArguments.Build("/in.mkv", "/out.mkv", "hevc_nvenc", QualityPreset.Balanced, EncodeEffort.Standard, tenBit, "mkv").ToList();
+        var kept = FfmpegArguments.Build("/in.mkv", "/out.mkv", "hevc_nvenc", QualityPreset.Balanced, EncodeEffort.Standard, tenBit, "mkv", framesOnGpu: true).ToList();
+
+        Assert.Equal("p010le", copied[copied.IndexOf("-pix_fmt") + 1]);
+        Assert.DoesNotContain("-pix_fmt", kept);
+        Assert.DoesNotContain("-filter:v:0", kept);
+    }
+
+    [Fact]
+    public void Build_ignores_frames_on_the_gpu_when_the_picture_is_scaled()
+    {
+        var args = FfmpegArguments.Build("/in.mkv", "/out.mkv", "hevc_nvenc", QualityPreset.Balanced, EncodeEffort.Standard, _plainSource with { IsTenBit = true }, "mkv", (1280, 720), framesOnGpu: true).ToList();
+
+        Assert.Contains("scale=1280:720:flags=lanczos", args[args.IndexOf("-filter:v:0") + 1], StringComparison.Ordinal);
+        Assert.Contains("-pix_fmt", args);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task HardwareFallback_moves_down_one_setup_at_a_time_and_remembers_what_failed()
+    {
+        HardwareSetup kept = new(["a"], "cuda", true);
+        HardwareSetup copied = new(["b"], "cuda");
+        HardwareSetup cpu = new([], null);
+        var tried = new List<HardwareSetup>();
+        var falls = 0;
+
+        var (result, failed) = await HardwareAcceleration.RunAsync(
+            [kept, copied, cpu],
+            plan =>
+            {
+                tried.Add(plan);
+                return plan == cpu ? System.Threading.Tasks.Task.FromResult("done") : throw new InvalidOperationException("ffmpeg failed");
+            },
+            (_, _, _) => falls++,
+            System.Threading.CancellationToken.None);
+
+        Assert.Equal("done", result);
+        Assert.Equal(new[] { kept, copied, cpu }, tried);
+        Assert.Equal(new[] { kept, copied }, failed);
+        Assert.Equal(2, falls);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task HardwareFallback_stops_at_the_first_setup_that_works()
+    {
+        HardwareSetup kept = new(["a"], "cuda", true);
+        HardwareSetup copied = new(["b"], "cuda");
+
+        var (result, failed) = await HardwareAcceleration.RunAsync([kept, copied], plan => System.Threading.Tasks.Task.FromResult(plan.FramesOnGpu), null, System.Threading.CancellationToken.None);
+
+        Assert.True(result);
+        Assert.Empty(failed);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task HardwareFallback_gives_up_on_the_last_setup_and_never_retries_a_cancel()
+    {
+        HardwareSetup first = new(["a"], "cuda");
+        HardwareSetup last = new([], null);
+        var tried = 0;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => HardwareAcceleration.RunAsync<int>([first, last], _ => { tried++; throw new InvalidOperationException("no"); }, null, System.Threading.CancellationToken.None));
+        Assert.Equal(2, tried);
+
+        using var cancelled = new System.Threading.CancellationTokenSource();
+        await cancelled.CancelAsync();
+        tried = 0;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => HardwareAcceleration.RunAsync<int>([first, last], _ => { tried++; throw new InvalidOperationException("stopped"); }, null, cancelled.Token));
+        Assert.Equal(1, tried);
+    }
+
+    [Fact]
+    public void CompareFramesOnGpu_says_whether_it_was_worth_it()
+    {
+        Assert.Contains("about 25% faster", GpuParsing.CompareFramesOnGpu([400, 800], [500, 1000]), StringComparison.Ordinal);
+        Assert.Contains("worth turning on", GpuParsing.CompareFramesOnGpu([400, 800], [500, 1000]), StringComparison.Ordinal);
+        Assert.Contains("about 20% slower", GpuParsing.CompareFramesOnGpu([400, 700], [300, 560]), StringComparison.Ordinal);
+        Assert.Contains("little difference", GpuParsing.CompareFramesOnGpu([400, 700], [405, 710]), StringComparison.Ordinal);
+        Assert.Contains("didn't work", GpuParsing.CompareFramesOnGpu([400, 700], []), StringComparison.Ordinal);
+    }
 }
