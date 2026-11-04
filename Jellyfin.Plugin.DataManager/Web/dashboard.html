@@ -432,6 +432,7 @@
             #DataManagerDashboardPage .dm-frame-time { left: 4px; bottom: 3px; font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-frame-score { right: 4px; bottom: 3px; }
             #DataManagerDashboardPage .dm-frame-tag { left: 4px; top: 3px; background: var(--dm-accent); color: var(--dm-on-accent); font-weight: 600; }
+            #DataManagerDashboardPage .dm-has-rail .dm-frame-tag { display: none; }
             #DataManagerDashboardPage .dm-scores { display: flex; flex-direction: column; gap: 12px; }
             #DataManagerDashboardPage .dm-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
             #DataManagerDashboardPage .dm-metrics:empty { display: none; }
@@ -698,7 +699,7 @@
                     <div class="dm-tiles">
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
-                            <div class="dm-tile-b"><span class="dm-tile-t">Smaller files</span><span id="dmSmallerNumber" class="dm-tile-n"></span><span id="dmSmallerCard" class="dm-tile-l">Shows re-encodes you kept beside their originals once they're smaller, to accept in one go.</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Smaller files</span><span id="dmSmallerNumber" class="dm-tile-n"></span><span id="dmSmallerCard" class="dm-tile-l">Re-encodes you kept, ready to accept in one go.</span></div>
                             <button type="button" id="dmSmallerOpen" class="dm-button" disabled>Review</button>
                         </div>
                         <div class="dm-card dm-tile">
@@ -1592,11 +1593,11 @@
                     var meta = '';
                     var audio = f.AudioLanguages || [];
                     if (audio.length > 1) {
-                        meta += '<span title="' + escapeHtml(plural(audio.length, 'audio language') + ': ' + audio.join(', ')) + '">' + icon('languages') + audio.length + '</span>';
+                        meta += '<span title="' + escapeHtml(plural(audio.length, 'audio language') + ': ' + audio.join(', ')) + '">' + icon('languages') + plural(audio.length, 'language') + '</span>';
                     }
                     if (f.SubtitleTracks > 0) {
                         var subs = f.SubtitleLanguages || [];
-                        meta += '<span title="' + escapeHtml(plural(f.SubtitleTracks, 'subtitle track') + ' inside the file' + (subs.length ? ': ' + subs.join(', ') : '')) + '">' + icon('captions') + f.SubtitleTracks + '</span>';
+                        meta += '<span title="' + escapeHtml(plural(f.SubtitleTracks, 'subtitle track') + ' inside the file' + (subs.length ? ': ' + subs.join(', ') : '')) + '">' + icon('captions') + plural(f.SubtitleTracks, 'subtitle') + '</span>';
                     }
                     return meta;
                 }
@@ -4095,7 +4096,7 @@
                 function renderSmallerCard() {
                     var pairs = smallerPairs();
                     $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0)) : 'None';
-                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 're-encode') + ' ready. ' + freesLine(pairs) : 'Shows re-encodes you kept beside their originals once they\'re smaller, to accept in one go.';
+                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 're-encode') + ' ready. ' + freesLine(pairs) : 'Re-encodes you kept, ready to accept in one go.';
                     $('#dmSmallerOpen').disabled = !pairs.length;
                     if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) {
                         if (pairs.length) { renderSmallerList(); } else { closeSmaller(); }
@@ -5647,8 +5648,29 @@
 
                 window.addEventListener('resize', placeDock);
 
+                // Tab stays inside the window on top, rather than wandering to the page behind it.
+                function trapFocus(e) {
+                    var open = page.querySelectorAll('.dm-overlay:not(.dm-hidden)');
+                    if (!open.length) { return; }
+                    var top = $('#dmConfirmDialog').classList.contains('dm-hidden') ? open[open.length - 1] : $('#dmConfirmDialog');
+                    var stops = Array.prototype.filter.call(top.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'), function (el) {
+                        return !el.disabled && el.tabIndex >= 0 && el.offsetParent !== null;
+                    });
+                    if (!stops.length) { return; }
+                    var at = stops.indexOf(document.activeElement);
+                    var leaving = at < 0 || (e.shiftKey ? at === 0 : at === stops.length - 1);
+                    if (leaving) {
+                        e.preventDefault();
+                        stops[e.shiftKey ? stops.length - 1 : 0].focus();
+                    }
+                }
+
                 // On the document, so Escape works with nothing focused, as when a disabled button loses focus.
                 document.addEventListener('keydown', function (e) {
+                    if (e.key === 'Tab') {
+                        trapFocus(e);
+                        return;
+                    }
                     if (e.key !== 'Escape') { return; }
                     if (!$('#dmConfirmDialog').classList.contains('dm-hidden')) { closeConfirm(); return; }
                     if ($('#dmEncodeDialog').classList.contains('dm-rail-open') && !$('#dmDialog').classList.contains('dm-hidden')) { $('#dmEncodeDialog').classList.remove('dm-rail-open'); return; }
