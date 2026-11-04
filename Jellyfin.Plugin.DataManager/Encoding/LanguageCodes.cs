@@ -69,7 +69,11 @@ public sealed class LanguageCodes
     public string DisplayName(string code)
     {
         ArgumentNullException.ThrowIfNull(code);
-        return Find(code)?.DisplayName ?? code;
+
+        // Jellyfin's names can list alternatives, such as "Spanish; Castilian". The first is plenty.
+        var name = Find(code)?.DisplayName ?? code;
+        var alternatives = name.IndexOf(';', StringComparison.Ordinal);
+        return alternatives > 0 ? name[..alternatives] : name;
     }
 
     /// <summary>

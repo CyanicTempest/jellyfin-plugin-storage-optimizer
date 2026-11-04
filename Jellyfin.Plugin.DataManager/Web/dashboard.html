@@ -329,6 +329,7 @@
             #DataManagerDashboardPage .dm-blk-h h4 { margin: 0; font-size: 13px; font-weight: 600; color: inherit; }
             #DataManagerDashboardPage .dm-blk-h span { font-size: 12px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-hint { margin: 0; font-size: 12.5px; color: var(--dm-ink-3); line-height: 1.45; }
+            #DataManagerDashboardPage .dm-remux-suggest { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px; background: var(--dm-tint); font-size: 13px; }
             #DataManagerDashboardPage .dm-hint.dm-attention { color: var(--dm-warning); }
             #DataManagerDashboardPage .dm-text-button { padding: 0; border: 0; background: none; color: var(--dm-tint-ink); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
             #DataManagerDashboardPage .dm-hint a { color: var(--dm-tint-ink); }
@@ -951,6 +952,7 @@
                         </div>
                         <div class="dm-db">
                             <p class="dm-lead">Removes the audio and subtitle tracks you don't want, and copies the video and everything else as it is. The picture isn't re-encoded, so it doesn't change, and it takes about as long as copying the files, plus a little for any audio you convert.</p>
+                            <div id="dmRemuxSuggest" class="dm-remux-suggest dm-hidden"><span id="dmRemuxSuggestText"></span><button type="button" id="dmRemuxApply" class="dm-small-button">Apply</button></div>
                             <div id="dmRemuxTracks" class="dm-blk"></div>
                             <details class="dm-acc">
                                 <summary>Shrink audio and extras<span><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span></summary>
@@ -2462,11 +2464,15 @@
                     var channels = t.Kind !== 'Audio' || !t.Channels ? '' : t.Channels === 1 ? 'Mono' : t.Channels === 2 ? 'Stereo' : t.Channels === 6 ? '5.1' : t.Channels === 8 ? '7.1' : t.Channels + ' ch';
                     var text = codec + (channels ? ' ' + channels : '');
                     var flags = [];
-                    if (t.IsDefault) { flags.push('Default'); }
+                    // Across several files, each has its own default, so the tag says nothing.
+                    if (t.IsDefault && Object.keys(selected).length === 1) { flags.push('Default'); }
                     if (t.IsCommentary) { flags.push('Commentary'); }
                     if (t.IsForced) { flags.push('Forced'); }
                     if (t.IsHearingImpaired) { flags.push('SDH'); }
-                    return escapeHtml(text) + (t.Title ? ' <span class="dm-track-title">' + escapeHtml(t.Title) + '</span>' : '')
+                    // A title that only repeats the format, as muxers often write, adds nothing.
+                    var title = t.Title || '';
+                    var repeats = title && (/handler/i.test(title) || title.toLowerCase().indexOf((t.Codec || '').toLowerCase()) >= 0 || title.toLowerCase().indexOf(codec.toLowerCase()) >= 0);
+                    return escapeHtml(text) + (title && !repeats ? ' <span class="dm-track-title">' + escapeHtml(title) + '</span>' : '')
                         + flags.map(function (f) { return ' <span class="dm-tag dm-tag-plain">' + f + '</span>'; }).join('');
                 }
 
@@ -4253,6 +4259,19 @@
                         : 'Adds the new file as another version, named with "- Remux", so you can check it before deleting the original.';
                 }
 
+                // The languages worth keeping are offered, not picked: the window starts on keeping everything, as Re-encode does.
+                function renderRemuxSuggestion(estimate) {
+                    var box = $('#dmRemuxSuggest');
+                    var keepingAll = $('#dmAudio').value === 'KeepAll' && $('#dmSubtitles').value === 'KeepAll';
+                    var suggested = estimate && estimate.SuggestedLanguages ? estimate.SuggestedLanguages : [];
+                    var extra = (estimate && estimate.Tracks ? estimate.Tracks : []).filter(function (t) { return suggested.indexOf(t.Language) < 0; });
+                    var show = keepingAll && suggested.length > 0 && extra.length > 0;
+                    box.classList.toggle('dm-hidden', !show);
+                    if (!show) { return; }
+                    var names = (estimate.Languages || []).filter(function (l) { return suggested.indexOf(l.Code) >= 0; }).map(function (l) { return l.Name; });
+                    $('#dmRemuxSuggestText').textContent = 'Suggested: keep ' + listNames(names) + ', which saves about ' + formatBytes(extra.reduce(function (sum, t) { return sum + t.Bytes; }, 0)) + '.';
+                }
+
                 // What the remux saves, and whether there's anything to do.
                 function renderRemux() {
                     var estimate = trackEstimate();
@@ -4260,13 +4279,18 @@
                     var removes = estimate && (estimate.RemovedAudioTracks || estimate.RemovedSubtitleTracks || estimate.ConvertedAudioTracks
                         || (body.Hdr === 'RemoveDolbyVision' && estimate.DolbyVisionFiles && estimate.CanRemoveDolbyVision) || body.StripFonts || body.StripCoverArt);
                     $('#dmRemuxStart').disabled = !removes;
+                    renderRemuxSuggestion(estimate || lastTrackEstimate);
                     if (!estimate) {
                         $('#dmRemuxEstimate').innerHTML = lastTrackEstimate ? '' : '<span class="dm-result-text">Reading the tracks…</span>';
                         return;
                     }
+                    var saved = estimate.SourceBytes - estimate.OutputBytes;
+                    var notWorthIt = removes && saved < estimate.SourceBytes * 0.01;
+                    $('#dmRemuxStart').classList.toggle('dm-primary', !notWorthIt);
                     $('#dmRemuxEstimate').innerHTML = !removes
                         ? '<span class="dm-result-text">Choose which tracks to remove or what to shrink above.</span>'
-                        : resultHtml(estimate.SourceBytes, estimate.OutputBytes, null);
+                        : notWorthIt ? '<span class="dm-result-text">Not worth it: this saves ' + escapeHtml(formatBytes(Math.max(saved, 0))) + ', under 1% of ' + escapeHtml(formatBytes(estimate.SourceBytes)) + '.</span>'
+                            : resultHtml(estimate.SourceBytes, estimate.OutputBytes, null);
                     var mode = checkedValue('dmRemuxMode', 'KeepBoth');
                     var free = summary ? summary.FreeBytes : -1;
                     $('#dmRemuxWarning').innerHTML = mode === 'KeepBoth' && free >= 0 && free < estimate.OutputBytes * 1.05 + 1024 * 1024 * 1024
@@ -4282,9 +4306,6 @@
                     resetTracks();
                     remuxEstimate = null;
                     placeTrackPicker('remux');
-                    // Removing tracks is the whole point here, so the choices start on keeping the ticked languages.
-                    if ($('#dmAudio').value === 'KeepAll') { $('#dmAudio').value = 'KeepLanguages'; }
-                    if ($('#dmSubtitles').value === 'KeepAll') { $('#dmSubtitles').value = 'KeepLanguages'; }
                     // Keeping the original is the default; replacing it is a choice.
                     $('#dmRemuxModes').innerHTML = segLabel('dmRemuxMode', 'KeepBoth', true, false, 'Keep both') + segLabel('dmRemuxMode', 'Replace', false, false, 'Replace original');
                     page.querySelectorAll('input[name="dmRemuxMode"]').forEach(function (r) { r.addEventListener('change', function () { renderRemuxModeHint(); renderRemux(); }); });
@@ -4297,7 +4318,7 @@
                         var language = user && user.Configuration ? user.Configuration.AudioLanguagePreference || '' : '';
                         if (language !== preferredLanguage) { preferredLanguage = language; resetTracks(); requestRemuxEstimate(); }
                     }, function () { });
-                    $('#dmRemuxStart').focus();
+                    $('#dmRemuxCancel').focus();
                 }
 
                 function closeRemux() {
@@ -4306,9 +4327,25 @@
                     $('#dmRemuxButton').focus();
                 }
 
+                // Replacing can't be undone here either, so it asks first.
+                function confirmRemux() {
+                    if (checkedValue('dmRemuxMode', 'KeepBoth') !== 'Replace') {
+                        startRemux();
+                        return;
+                    }
+                    var files = selectedFiles();
+                    openConfirm({
+                        title: files.length === 1 ? 'Replace the original?' : 'Replace ' + files.length + ' originals?',
+                        body: '<p>' + (files.length === 1 ? 'The original is' : 'Each original is') + ' deleted once the new file is checked. This can\'t be undone.</p>'
+                            + fileList(files.map(function (f) { return { name: titleOf(f), detail: f.Path, size: f.SizeBytes }; })),
+                        ok: 'Remux and replace',
+                        action: startRemux
+                    });
+                }
+
                 function startRemux() {
                     $('#dmRemuxStart').disabled = true;
-                    postJson('DataManager/Encode', remuxBody()).then(function () {
+                    return postJson('DataManager/Encode', remuxBody()).then(function () {
                         closeRemux();
                         selected = {};
                         updateSelection();
@@ -5723,7 +5760,13 @@
                 $('#dmRemuxClose').addEventListener('click', closeRemux);
                 $('#dmRemuxButton').addEventListener('click', openRemux);
                 $('#dmRemuxCancel').addEventListener('click', closeRemux);
-                $('#dmRemuxStart').addEventListener('click', startRemux);
+                $('#dmRemuxStart').addEventListener('click', confirmRemux);
+                $('#dmRemuxApply').addEventListener('click', function () {
+                    ['#dmAudio', '#dmSubtitles'].forEach(function (selector) {
+                        $(selector).value = 'KeepLanguages';
+                        $(selector).dispatchEvent(new Event('change'));
+                    });
+                });
                 $('#dmRemuxDialog').addEventListener('click', function (e) { if (e.target.id === 'dmRemuxDialog') { closeRemux(); } });
                 $('#dmDialogStart').addEventListener('click', confirmStart);
                 $('#dmToastShow').addEventListener('click', function () {
