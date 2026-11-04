@@ -314,6 +314,7 @@
             #DataManagerDashboardPage .dm-blk-h h4 { margin: 0; font-size: 13px; font-weight: 600; color: inherit; }
             #DataManagerDashboardPage .dm-blk-h span { font-size: 12px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-hint { margin: 0; font-size: 12.5px; color: var(--dm-ink-3); line-height: 1.45; }
+            #DataManagerDashboardPage .dm-hint.dm-attention { color: var(--dm-warning); }
             #DataManagerDashboardPage .dm-hint a { color: var(--dm-tint-ink); }
             #DataManagerDashboardPage .dm-hint .dm-ic { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; }
             #DataManagerDashboardPage .dm-hint.dm-failed { color: var(--dm-error); }
@@ -781,6 +782,7 @@
                                 <div class="dm-blk">
                                     <div class="dm-blk-h"><h4 id="dmQualityTitle">Quality<i id="dmDotQuality" class="dm-dd dm-hidden" title="This file has its own quality"></i></h4><span>New size</span></div>
                                     <div id="dmQualityChoices" class="dm-levels" role="radiogroup" aria-labelledby="dmQualityTitle"></div>
+                                    <p id="dmQualityMoved" class="dm-hint dm-attention dm-hidden" role="status"></p>
                                     <p id="dmQualityNote" class="dm-hint"></p>
                                 </div>
                                 <div class="dm-blk">
@@ -2607,9 +2609,20 @@
                     var offered = offeredQualities();
 
                     // A level that wouldn't save space gives way to the best one that does.
+                    // The level the user chose is remembered, and comes back as soon as it's offered again.
                     var quality = body.Quality;
+                    var wishKey = scopeId || 'all';
                     var moved = !offered.none && !offered.list.some(function (q) { return q.value === quality; });
-                    if (moved) { quality = offered.list[0].value; }
+                    if (moved) {
+                        if (!wantedQuality[wishKey]) { wantedQuality[wishKey] = quality; }
+                        quality = offered.list[0].value;
+                    }
+                    var wish = wantedQuality[wishKey];
+                    var returning = !!wish && wish !== quality && !!offered.source && offered.list.some(function (q) { return q.value === wish; });
+                    if (returning) {
+                        quality = wish;
+                        moved = true;
+                    }
 
                     $('#dmQualityChoices').innerHTML = offered.list.map(function (q) {
                         var level = offered.sizes[q.value];
@@ -2640,6 +2653,9 @@
                     }
                     $('#dmQualityNote').textContent = note;
                     $('#dmQualityNote').classList.toggle('dm-failed', offered.none);
+                    var heldBack = !offered.none && !!wish && wish !== quality;
+                    $('#dmQualityMoved').textContent = heldBack ? codecName + ' starts at ' + levelName(qualities, quality) + ' here. ' + levelName(qualities, wish) + ' comes back when it\'s offered again.' : '';
+                    $('#dmQualityMoved').classList.toggle('dm-hidden', !heldBack);
                     // One file with nothing to gain doesn't stop the rest from starting.
                     $('#dmDialogStart').disabled = offered.none && !scopeId;
 
@@ -2984,6 +3000,7 @@
                 var scopeId = null;
                 var globalSettings = null;
                 var overrides = {};
+                var wantedQuality = {};
                 var railFilter = 'all';
                 var railSearch = '';
                 var fileBusy = false;
@@ -2995,6 +3012,7 @@
                     scopeId = null;
                     globalSettings = null;
                     overrides = {};
+                    wantedQuality = {};
                     railFilter = 'all';
                     railSearch = '';
                     fileBusy = false;
@@ -3355,6 +3373,7 @@
                     });
                     $('#dmScopeMatch').addEventListener('click', function () {
                         delete overrides[scopeId];
+                        delete wantedQuality[scopeId];
                         showScope(false);
                     });
                     $('#dmToAll').addEventListener('click', function () { setScope(null); });
@@ -5434,6 +5453,7 @@
                 compareViewer = makeViewer($('#dmViewer'), $('#dmCompareTools'), { maxHeight: 0.62, legend: $('#dmCompareDialog .dm-heat'), viewName: 'dmCompareView' });
                 previewViewer = makeViewer($('#dmPreviewViewer'), $('#dmPreviewTools'), { maxHeight: 0.56, legend: $('#dmDialog .dm-heat'), viewName: 'dmPreviewView', clip: true, clipSeconds: clipSeconds, onPlay: requestClip });
                 // Rows are redrawn with new numbers, so changes are caught on the containers.
+                $('#dmQualityChoices').addEventListener('change', function () { wantedQuality[scopeId || 'all'] = checkedValue('dmQuality', ''); });
                 ['#dmQualityChoices', '#dmEffortChoices'].forEach(function (selector) {
                     $(selector).addEventListener('change', function () { userChanged(); renderLevels(); requestEstimate(); requestPreview(); });
                 });
