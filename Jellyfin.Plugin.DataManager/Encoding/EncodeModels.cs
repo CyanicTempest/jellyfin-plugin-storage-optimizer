@@ -283,6 +283,9 @@ public class EncodeJob
     /// <summary>Gets or sets the final output path, once known.</summary>
     public string? OutputPath { get; set; }
 
+    /// <summary>Gets or sets the new file's library item, when it was kept beside the original.</summary>
+    public Guid? OutputItemId { get; set; }
+
     /// <summary>Gets or sets the target codec.</summary>
     public TargetCodec Codec { get; set; }
 

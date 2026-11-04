@@ -33,7 +33,7 @@ public class StorageScanner
 
     private readonly ILibraryManager _libraryManager;
     private readonly EncodeService _encodeService;
-    private readonly LanguageCodes _languages;
+    private readonly ReportUpdater _reports;
     private readonly ILogger<StorageScanner> _logger;
 
     /// <summary>
@@ -41,11 +41,11 @@ public class StorageScanner
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="encodeService">The re-encode queue, which finds files left by interrupted encodes.</param>
-    /// <param name="languages">Names the languages of each file's tracks.</param>
+    /// <param name="reports">Describes each file.</param>
     /// <param name="logger">The logger.</param>
-    public StorageScanner(ILibraryManager libraryManager, EncodeService encodeService, LanguageCodes languages, ILogger<StorageScanner> logger)
+    public StorageScanner(ILibraryManager libraryManager, EncodeService encodeService, ReportUpdater reports, ILogger<StorageScanner> logger)
     {
-        _languages = languages;
+        _reports = reports;
         _libraryManager = libraryManager;
         _encodeService = encodeService;
         _logger = logger;
@@ -91,7 +91,7 @@ public class StorageScanner
             var item = items[i];
             if (!string.IsNullOrEmpty(item.Path) && seenPaths.Add(item.Path))
             {
-                var file = Describe(item);
+                var file = _reports.Describe(item);
                 if (file is not null)
                 {
                     report.Files.Add(file);
@@ -174,7 +174,7 @@ public class StorageScanner
             cancellationToken);
     }
 
-    private static async Task ChangeAsync(Action<StorageReport> change, bool needed, CancellationToken cancellationToken)
+    internal static async Task ChangeAsync(Action<StorageReport> change, bool needed, CancellationToken cancellationToken)
     {
         if (!needed)
         {
@@ -240,108 +240,6 @@ public class StorageScanner
         return series + number + ": " + item.Name;
     }
 
-    private static string? SeriesName(Episode episode)
+    internal static string? SeriesName(Episode episode)
         => string.IsNullOrEmpty(episode.SeriesName) ? episode.FindSeriesName() : episode.SeriesName;
-
-    private static List<string> OtherVersions(BaseItem item)
-    {
-        if (item is not Video video
-            || !(video.PrimaryVersionId.HasValue || video.LinkedAlternateVersions.Length > 0 || video.HasLocalAlternateVersions || !video.OwnerId.Equals(Guid.Empty)))
-        {
-            return [];
-        }
-
-        return video.GetAllVersions()
-            .Where(v => !v.Id.Equals(item.Id))
-            .Select(v => v.Id.ToString("N", CultureInfo.InvariantCulture))
-            .ToList();
-    }
-
-    private MediaFileInfo? Describe(BaseItem item)
-    {
-        var fileInfo = new FileInfo(item.Path);
-        if (!fileInfo.Exists)
-        {
-            return null;
-        }
-
-        var sources = item.GetMediaSources(false);
-        var source = sources.Count > 0 ? sources[0] : null;
-        var streams = source?.MediaStreams ?? item.GetMediaStreams();
-        var video = streams.FirstOrDefault(s => s.Type == MediaStreamType.Video);
-        var audioBitrate = streams.Where(s => s.Type == MediaStreamType.Audio).Sum(s => (long)(s.BitRate ?? 0));
-
-        var file = new MediaFileInfo
-        {
-            ItemId = item.Id.ToString("N", CultureInfo.InvariantCulture),
-            Name = item.Name ?? fileInfo.Name,
-            Path = fileInfo.FullName,
-            Folder = fileInfo.DirectoryName ?? string.Empty,
-            Library = _libraryManager.GetCollectionFolders(item).FirstOrDefault()?.Name ?? "Unknown",
-            SizeBytes = fileInfo.Length,
-            Container = source?.Container ?? fileInfo.Extension.TrimStart('.'),
-            VideoCodec = video?.Codec ?? string.Empty,
-            Width = video?.Width ?? 0,
-            Height = video?.Height ?? 0,
-            Bitrate = source?.Bitrate ?? 0,
-            DurationSeconds = TimeSpan.FromTicks(item.RunTimeTicks ?? 0).TotalSeconds,
-            IsHdr = video is not null && video.VideoRange == VideoRange.HDR
-        };
-
-        // The tracks inside the file, so the page can flag files with several languages or subtitles to remove.
-        var tracks = _languages.Tracks(streams);
-        List<string> Names(TrackKind kind) => tracks
-            .Where(t => t.Kind == kind && t.Language is not null)
-            .Select(t => t.Language!)
-            .Distinct(StringComparer.Ordinal)
-            .Select(_languages.DisplayName)
-            .ToList();
-        file.AudioTracks = tracks.Count(t => t.Kind == TrackKind.Audio);
-        file.AudioLanguages = Names(TrackKind.Audio);
-        file.SubtitleTracks = tracks.Count(t => t.Kind == TrackKind.Subtitle);
-        file.SubtitleLanguages = Names(TrackKind.Subtitle);
-
-        file.EstimatedSavingsBytes = SavingsEstimator.Estimate(file, audioBitrate);
-        file.OtherVersionIds = OtherVersions(item);
-
-        // Trailers, featurettes and other extras, which can be deleted on their own without touching the main video.
-        file.ExtraType = item.ExtraType?.ToString();
-
-        // What the duplicate finder matches copies of the same title on.
-        file.Kind = item switch
-        {
-            Movie => "Movie",
-            Episode => "Episode",
-            _ => "Video"
-        };
-        file.IsExtra = item.ExtraType is not null;
-        if (item is Movie)
-        {
-            file.Year = item.ProductionYear;
-            var ids = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var name in DuplicateFinder.ProviderNames)
-            {
-                if (item.GetProviderId(name) is { } id && !string.IsNullOrWhiteSpace(id))
-                {
-                    ids[name] = id.Trim();
-                }
-            }
-
-            file.ProviderIds = ids;
-        }
-
-        // Episodes are listed by series and season, so the page needs to know where each one sits.
-        if (item is Episode episode && SeriesName(episode) is { Length: > 0 } seriesName)
-        {
-            var seriesId = episode.SeriesId.Equals(Guid.Empty) ? episode.FindSeriesId() : episode.SeriesId;
-            file.SeriesId = seriesId.Equals(Guid.Empty) ? null : seriesId.ToString("N", CultureInfo.InvariantCulture);
-            file.SeriesName = seriesName;
-            file.SeasonNumber = episode.ParentIndexNumber;
-            file.SeasonName = string.IsNullOrEmpty(episode.SeasonName) ? episode.FindSeasonName() : episode.SeasonName;
-            file.EpisodeNumber = episode.IndexNumber;
-            file.EpisodeNumberEnd = episode.IndexNumberEnd;
-        }
-
-        return file;
-    }
 }

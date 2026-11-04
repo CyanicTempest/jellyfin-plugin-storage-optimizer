@@ -4818,7 +4818,7 @@
                     return (stateNames[j.State] || j.State) + (j.Message ? '. ' + j.Message : '');
                 }
 
-                // The finished re-encode, once a scan has picked it up.
+                // The new file of a finished re-encode that kept the original.
                 function jobOutputFile(j) {
                     if (!summary || !summary.Files || j.State !== 'Completed' || j.Mode !== 'KeepBoth' || !j.OutputPath) { return null; }
                     return filesByPath[j.OutputPath] || null;
@@ -4861,9 +4861,9 @@
                                 ? '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="true">' + (j.Mode === 'Replace' ? 'Replace anyway' : 'Add it anyway') + '</button>'
                                     + '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="false">Delete the new file</button>'
                                 : '');
-                        // Next to Done: compare the two versions when both are in the library, otherwise open the title in Jellyfin.
-                        var afterDone = output && filesById[normaliseId(j.ItemId)]
-                            ? '<button type="button" class="dm-small-button dm-compare" data-id="' + normaliseId(j.ItemId) + '" data-other="' + output.ItemId + '">' + icon('compare') + 'Compare</button>'
+                        // Next to Done: compare the two versions when the original was kept, otherwise open the title in Jellyfin.
+                        var afterDone = j.Mode === 'KeepBoth'
+                            ? (output && filesById[normaliseId(j.ItemId)] ? '<button type="button" class="dm-small-button dm-compare" data-id="' + normaliseId(j.ItemId) + '" data-other="' + output.ItemId + '">' + icon('compare') + 'Compare</button>' : '')
                             : '<a class="dm-small-button dm-open" href="' + escapeHtml(jellyfinItemLink(j.ItemId)) + '" title="Open this title in Jellyfin">' + icon('externalLink') + 'Open in Jellyfin</a>';
                         var middle;
                         if (j.State === 'Running' || j.State === 'Paused') {
@@ -4898,12 +4898,8 @@
                             if (active) { anyActive = true; activeJobIds[j.Id] = true; }
                             else if (activeJobIds[j.Id]) { delete activeJobIds[j.Id]; if (j.State === 'Completed') { anyJustFinished = true; } }
                         });
-                        // Rescan once a re-encode lands, so the overview shows the new sizes.
-                        if (anyJustFinished && !anyActive) {
-                            ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('DataManager/Scan') }).then(function () {
-                                setTimeout(function () { pollScan(true); }, 1000);
-                            });
-                        }
+                        // The server puts each finished file in the report, so the new numbers only need fetching.
+                        if (anyJustFinished) { load(); }
                         // A hidden tab has nobody to show progress to, so it only checks in now and then.
                         if (anyActive) { jobTimer = setTimeout(loadJobs, document.hidden ? 20000 : 2000); }
                     });

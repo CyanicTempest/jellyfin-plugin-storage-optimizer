@@ -16,6 +16,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<LanguageCodes>();
+        serviceCollection.AddSingleton<ReportUpdater>();
         serviceCollection.AddSingleton<StorageScanner>();
         serviceCollection.AddSingleton<SummaryBuilder>();
         serviceCollection.AddSingleton<ResolutionAnalyzer>();

@@ -62,6 +62,7 @@ public sealed class EncodeService : IDisposable
     private readonly FrameComparer _frameComparer;
     private readonly HardwareAcceleration _hardware;
     private readonly LanguageCodes _languages;
+    private readonly ReportUpdater _reports;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly ILogger<EncodeService> _logger;
     private readonly ViewerMonitor _viewers;
@@ -88,6 +89,7 @@ public sealed class EncodeService : IDisposable
     /// <param name="frameComparer">Compares frames, for previews.</param>
     /// <param name="hardware">Picks encoders and sets up the GPU.</param>
     /// <param name="languages">Matches track languages to the ones the user keeps.</param>
+    /// <param name="reports">Puts finished encodes into the saved report.</param>
     /// <param name="serverConfig">The server's settings, for its preferred language.</param>
     /// <param name="viewers">Lists the streams being transcoded, so encoding can make room for them.</param>
     /// <param name="gpu">Finds the GPU, for how many encodes to run at once.</param>
@@ -102,6 +104,7 @@ public sealed class EncodeService : IDisposable
         FrameComparer frameComparer,
         HardwareAcceleration hardware,
         LanguageCodes languages,
+        ReportUpdater reports,
         IServerConfigurationManager serverConfig,
         ViewerMonitor viewers,
         GpuDetector gpu,
@@ -110,6 +113,7 @@ public sealed class EncodeService : IDisposable
         _viewers = viewers;
         _gpu = gpu;
         _languages = languages;
+        _reports = reports;
         _serverConfig = serverConfig;
         _hardware = hardware;
         _frameComparer = frameComparer;
@@ -1628,11 +1632,21 @@ public sealed class EncodeService : IDisposable
         job.Message = "Updating the library…";
         await RefreshAsync(item, folder, cancellationToken).ConfigureAwait(false);
 
+        job.OutputItemId = job.Mode == OutputMode.KeepBoth ? await LinkAsVersionAsync(item, finalPath, cancellationToken).ConfigureAwait(false) : null;
+        try
+        {
+            await _reports.EncodeFinishedAsync(item.Id, source, finalPath, job.OutputItemId).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The new file is in place either way, and the next scan picks it up.
+            _logger.LogWarning(ex, "Storage Optimizer couldn't add {Path} to the storage report", finalPath);
+        }
+
         var saved = job.SourceBytes - (job.OutputBytes ?? 0);
         var savedText = saved > 0 ? "saved " + FormatBytes(saved) : "saved nothing";
         if (job.Mode == OutputMode.KeepBoth)
         {
-            await LinkAsVersionAsync(item, finalPath, cancellationToken).ConfigureAwait(false);
             Finish(job, EncodeJobState.Completed, "Added as a new version" + (saved > 0 ? ". Deleting the original later would save " + FormatBytes(saved) + "." : ".") + (job.TracksNote is null ? string.Empty : " " + job.TracksNote));
         }
         else
@@ -2181,22 +2195,33 @@ public sealed class EncodeService : IDisposable
         await folder.ValidateChildren(new Progress<double>(), options, true, false, cancellationToken).ConfigureAwait(false);
     }
 
-    // Same steps as Jellyfin's own "merge versions" action, with the original kept as the primary version.
-    private async Task LinkAsVersionAsync(Video original, string newPath, CancellationToken cancellationToken)
+    // Finds the new file's library item and links it to the original, with the original kept as the primary version.
+    // Jellyfin groups a file named like a version of its neighbour under one title by itself, but it only makes the
+    // file an item of its own when that title is refreshed, so until then it can't be found, compared or listed.
+    private async Task<Guid?> LinkAsVersionAsync(Video original, string newPath, CancellationToken cancellationToken)
     {
-        if (_libraryManager.FindByPath(newPath, false) is not Video added || added.Id.Equals(original.Id))
+        original = _libraryManager.GetItemById<Video>(original.Id) ?? original;
+        var added = FindVersion(original, newPath);
+        if (added is null)
+        {
+            var options = new MetadataRefreshOptions(new DirectoryService(_fileSystem));
+            await original.RefreshMetadata(options, cancellationToken).ConfigureAwait(false);
+            original = _libraryManager.GetItemById<Video>(original.Id) ?? original;
+            added = FindVersion(original, newPath);
+        }
+
+        if (added is null || added.Id.Equals(original.Id))
         {
             _logger.LogWarning("Storage Optimizer could not find {Path} in the library to link it as a version", newPath);
-            return;
+            return null;
         }
 
-        // Jellyfin may already have grouped it, if the file names follow its multiple-version naming.
-        original = _libraryManager.GetItemById<Video>(original.Id) ?? original;
         if (original.GetAllVersions().Any(v => v.Id.Equals(added.Id)))
         {
-            return;
+            return added.Id;
         }
 
+        // Same steps as Jellyfin's own "merge versions" action.
         added.SetPrimaryVersionId(original.Id);
         await added.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
         await _libraryManager.RerouteLinkedChildReferencesAsync(added.Id, original.Id).ConfigureAwait(false);
@@ -2207,7 +2232,12 @@ public sealed class EncodeService : IDisposable
             new LinkedChild { ItemId = added.Id, Type = LinkedChildType.LinkedAlternateVersion }
         ];
         await original.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
+        return added.Id;
     }
+
+    private Video? FindVersion(Video original, string path)
+        => _libraryManager.FindByPath(path, false) as Video
+            ?? original.GetAllVersions().FirstOrDefault(v => string.Equals(v.Path, path, StringComparison.Ordinal));
 
     private void Finish(EncodeJob job, EncodeJobState state, string message)
     {
