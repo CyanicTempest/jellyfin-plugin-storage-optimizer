@@ -1095,6 +1095,8 @@
                 var filesById = {};
                 var selected = {};
                 var codecOptions = null;
+                // Formats Jellyfin isn't set to decode on the GPU, from the settings' GPU overview, loaded when the window opens.
+                var decodingProblem = null;
                 var activeJobIds = {};
                 var lastJobs = [];
                 var lastStatus = null;
@@ -2934,6 +2936,16 @@
                     if (hdr.length && codec !== 'H264' && hdrChoice !== 'ToneMapToSdr') { warnings.push('Dolby Vision enhancement layers and HDR10+ data will be dropped. HDR10 is kept.'); }
                     var same = files.filter(function (f) { return f.VideoCodec.toLowerCase() === codec.toLowerCase(); });
                     if (same.length) { warnings.push(plural(same.length, 'file') + ' already ' + (same.length === 1 ? 'uses' : 'use') + ' ' + codecLabel(codec.toLowerCase()) + ', so the saving will be small.'); }
+                    // Files in a format Jellyfin isn't set to decode on the GPU are decoded on the CPU, which can be the slow part.
+                    if (option && option.IsHardware && decodingProblem) {
+                        var cpuDecoded = files.filter(function (f) {
+                            var c = (f.VideoCodec || '').toLowerCase();
+                            return decodingProblem.Codecs.indexOf(c) !== -1 || (decodingProblem.TenBitHevc && c === 'hevc' && (f.IsHdr || f.Width >= 3200));
+                        });
+                        if (cpuDecoded.length) {
+                            warnings.push(plural(cpuDecoded.length, 'file') + ' will be decoded on the CPU, as Jellyfin isn\'t set to decode ' + (cpuDecoded.length === 1 ? 'its' : 'their') + ' format on the GPU. That can be several times slower than the GPU encodes. Turn hardware decoding on in Jellyfin, under Dashboard, Playback, Transcoding.');
+                        }
+                    }
                     if (option && !option.IsHardware) {
                         var time = currentTime();
                         var basis = { Tested: 'from test encodes of a calm, a typical and a busy scene', Encoded: 'based on your last encode with these settings', Running: 'based on the encode running now' }[time && time.SpeedSource];
@@ -3366,6 +3378,10 @@
                     resetTracks();
                     placeTrackPicker('encode');
                     resetScope();
+                    ApiClient.getJSON(ApiClient.getUrl('DataManager/Gpu')).then(function (overview) {
+                        decodingProblem = overview.Decoding || null;
+                        if (!$('#dmDialog').classList.contains('dm-hidden')) { renderWarnings(); }
+                    }, function () { decodingProblem = null; });
                     Promise.all([
                         codecOptions ? Promise.resolve(codecOptions) : ApiClient.getJSON(ApiClient.getUrl('DataManager/Encode/Options')),
                         ApiClient.getPluginConfiguration(pluginId),

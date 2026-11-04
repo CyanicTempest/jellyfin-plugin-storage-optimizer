@@ -61,6 +61,8 @@
             #DataManagerConfigPage .dm-infoln { display: flex; gap: 10px; align-items: flex-start; padding: 13px 20px; border-top: 1px solid var(--dm-soft); font-size: 12.5px; line-height: 1.5; color: var(--dm-ink-2); background: var(--dm-deep); }
             #DataManagerConfigPage .dm-infoln .dm-ic { width: 15px; height: 15px; margin-top: 2px; color: var(--dm-ink-3); }
             #DataManagerConfigPage .dm-infoln p { margin: 0; }
+            #DataManagerConfigPage .dm-infoln.dm-warn { background: var(--dm-warning-chip); color: var(--dm-ink); }
+            #DataManagerConfigPage .dm-infoln.dm-warn .dm-ic { color: var(--dm-warning); }
             /* The choices on one line: a row of buttons, one on */
             #DataManagerConfigPage .dm-seg { display: inline-flex; flex: none; gap: 2px; padding: 2px; background: var(--dm-deep); border: 1px solid var(--dm-line); border-radius: 9px; font-size: 13px; max-width: 100%; }
             #DataManagerConfigPage .dm-seg button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--dm-ink-2); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
@@ -193,6 +195,7 @@
                         <div class="dm-srow-tx"><b id="dmcKeepFramesLabel">Keep frames on the GPU</b><span id="dmcKeepFramesNote"></span></div>
                         <button type="button" id="dmcKeepFrames" class="dm-switch" role="switch" aria-checked="false" aria-labelledby="dmcKeepFramesLabel"></button>
                     </label>
+                    <div class="dm-infoln dm-warn dm-hidden" id="dmcDecodeWarn" role="status"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><p></p></div>
                     <div class="dm-infoln dm-hidden" id="dmcGpuNote"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p></p></div>
                 </section>
 
@@ -328,6 +331,7 @@
                     if (!gpu) {
                         box.innerHTML = '<div class="dm-gpu-ic">' + icons.chip + '</div><div class="dm-gpu-tx"><b>Reading your GPU</b></div>';
                         $('#dmcGpuNote').classList.add('dm-hidden');
+                        $('#dmcDecodeWarn').classList.add('dm-hidden');
                         return;
                     }
                     var g = gpu.Gpu;
@@ -342,6 +346,9 @@
                         + '<span>' + escapeHtml(engines || '') + (g.State !== 'CpuOnly' && g.Acceleration && (engines || '').indexOf(g.Acceleration) < 0 ? ' \u00b7 ' + escapeHtml(g.Acceleration) : '') + '</span>'
                         + (chips.length ? '<div class="dm-chips">' + chips.join('') + '</div>' : '')
                         + (codecs ? '<div class="dm-chips" aria-label="Codecs it can encode">' + codecs + '</div>' : '') + '</div>';
+                    var decode = $('#dmcDecodeWarn');
+                    decode.classList.toggle('dm-hidden', !gpu.Decoding);
+                    decode.querySelector('p').textContent = gpu.Decoding ? gpu.Decoding.Message : '';
                     var note = $('#dmcGpuNote');
                     note.classList.toggle('dm-hidden', !g.Note);
                     note.querySelector('p').textContent = g.Note || '';

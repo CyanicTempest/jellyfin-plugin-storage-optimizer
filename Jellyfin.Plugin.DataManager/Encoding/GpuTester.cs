@@ -61,7 +61,8 @@ public sealed record GpuTestDetails(IReadOnlyList<GpuTestPass> Passes, string De
 /// <param name="Gpu">What is known about the GPU.</param>
 /// <param name="Recommended">The number of encodes to run at once: the last test's sweet spot, or else what the GPU's engines suggest.</param>
 /// <param name="Test">The test that's running, or the last result for this GPU.</param>
-public sealed record GpuOverview(GpuInfo Gpu, int Recommended, GpuTestStatus Test);
+/// <param name="Decoding">Formats Jellyfin isn't set to decode on the GPU, or null when there is nothing to warn about.</param>
+public sealed record GpuOverview(GpuInfo Gpu, int Recommended, GpuTestStatus Test, DecodingProblem? Decoding = null);
 
 /// <summary>
 /// Finds how many encodes at once suit the GPU, by timing one, two, three and four at once on a scene from the library.
@@ -473,7 +474,7 @@ public sealed class GpuTester : IDisposable
         var decoder = gpuDecodes ? "GPU" : "CPU";
         var decoderNote = gpuDecodes
             ? "Your film was decoded on the GPU."
-            : useDecoder ? "Your film was decoded on the CPU, as Jellyfin's hardware decoding isn't set up for its format." : "Your film was decoded on the CPU, because the GPU couldn't decode it.";
+            : useDecoder ? "Your film was decoded on the CPU, as Jellyfin's hardware decoding isn't set up for its format. Turn it on in Jellyfin, under Dashboard, Playback, Transcoding." : "Your film was decoded on the CPU, because the GPU couldn't decode it.";
 
         var totals = new List<List<double>>();
         for (var count = 1; count <= GpuParsing.MostAtOnce; count++)

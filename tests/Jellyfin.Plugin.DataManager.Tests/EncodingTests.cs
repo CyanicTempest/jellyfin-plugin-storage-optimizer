@@ -331,4 +331,55 @@ public sealed class EncodingTests
         Assert.Contains("little difference", GpuParsing.CompareFramesOnGpu([400, 700], [405, 710]), StringComparison.Ordinal);
         Assert.Contains("didn't work", GpuParsing.CompareFramesOnGpu([400, 700], []), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Diagnose_treats_a_film_within_a_quarter_of_the_encoder_as_keeping_up()
+    {
+        Assert.Contains("keeps up", GpuParsing.Diagnose([452, 879, 896], [393, 744, 751]), StringComparison.Ordinal);
+        Assert.Contains("only 7%", GpuParsing.Diagnose([452, 879, 903], [66, 54, 45]), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(new string[0], false, "Jellyfin isn't set to decode H.264 and HEVC on the GPU")]
+    [InlineData(new[] { "h264" }, false, "Jellyfin isn't set to decode HEVC on the GPU")]
+    [InlineData(new[] { "h264", "hevc" }, false, "Jellyfin isn't set to decode 10-bit HEVC on the GPU")]
+    public void DecodeProblem_names_what_is_off_for_an_nvidia_card_with_no_scan(string[] on, bool tenBit, string expected)
+    {
+        var problem = GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, on, tenBit, null, 0);
+
+        Assert.NotNull(problem);
+        Assert.Contains(expected, problem.Message, StringComparison.Ordinal);
+        Assert.Contains("Dashboard, Playback, Transcoding", problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DecodeProblem_only_counts_the_formats_the_library_holds()
+    {
+        var library = new Dictionary<string, int> { ["h264"] = 300, ["hevc"] = 40, ["av1"] = 2 };
+
+        var problem = GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, ["hevc"], true, library, 10);
+
+        Assert.NotNull(problem);
+        Assert.Equal(new[] { "h264", "av1" }, problem.Codecs);
+        Assert.Contains("H.264 and AV1", problem.Message, StringComparison.Ordinal);
+        Assert.Contains("which 302 of your files use", problem.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DecodeProblem_is_null_when_everything_in_the_library_decodes_on_the_gpu_or_the_card_does_not_decode_here()
+    {
+        var library = new Dictionary<string, int> { ["h264"] = 300, ["hevc"] = 40 };
+
+        Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, ["h264", "hevc"], true, library, 10));
+        Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, [], false, library, 10));
+        Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.none, [], false, library, 10));
+    }
+
+    [Fact]
+    public void DecodeProblem_skips_ten_bit_hevc_when_the_library_has_none_of_it()
+    {
+        var library = new Dictionary<string, int> { ["hevc"] = 40 };
+
+        Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, ["hevc"], false, library, 0));
+    }
 }

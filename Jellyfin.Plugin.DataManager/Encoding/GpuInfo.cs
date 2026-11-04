@@ -46,6 +46,14 @@ public sealed record GpuInfo(
     string? Note);
 
 /// <summary>
+/// Formats Jellyfin isn't set to decode on the GPU, so re-encodes of them decode on the CPU.
+/// </summary>
+/// <param name="Codecs">The codecs, as Jellyfin names them, such as h264.</param>
+/// <param name="TenBitHevc">Whether 10-bit HEVC is off too, though HEVC is on.</param>
+/// <param name="Message">What to tell the user, with where to turn it on.</param>
+public sealed record DecodingProblem(IReadOnlyList<string> Codecs, bool TenBitHevc, string Message);
+
+/// <summary>
 /// A graphics device the system lists.
 /// </summary>
 /// <param name="Vendor">Nvidia, Intel, Amd or Unknown.</param>
@@ -363,6 +371,64 @@ internal static partial class GpuParsing
     }
 
     /// <summary>
+    /// Finds the formats in the library that Jellyfin isn't set to decode on the GPU, which is what the plugin follows, so
+    /// re-encoding them decodes on the CPU, several times slower than the GPU encodes.
+    /// </summary>
+    /// <param name="hardware">Jellyfin's hardware acceleration setting, with none when hardware encoding is off.</param>
+    /// <param name="decodingCodecs">The codecs Jellyfin is set to decode on the GPU.</param>
+    /// <param name="tenBitHevc">Jellyfin's setting for decoding 10-bit HEVC on the GPU.</param>
+    /// <param name="libraryCodecs">How many files use each video codec, from the last scan, or null if there hasn't been one.</param>
+    /// <param name="likelyTenBitHevc">How many HEVC files are HDR or 4K, which are nearly always 10-bit, or 0.</param>
+    /// <returns>What's off, or null when nothing is, or when the GPU doesn't decode here at all.</returns>
+    public static DecodingProblem? DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType hardware, IReadOnlyCollection<string> decodingCodecs, bool tenBitHevc, IReadOnlyDictionary<string, int>? libraryCodecs, int likelyTenBitHevc)
+    {
+        ArgumentNullException.ThrowIfNull(decodingCodecs);
+
+        // Only NVIDIA and Intel decode on the GPU in this plugin; the others decode on the CPU whatever is set.
+        if (hardware is not (MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc or MediaBrowser.Model.Entities.HardwareAccelerationType.qsv))
+        {
+            return null;
+        }
+
+        string[] decodable = ["h264", "hevc", "mpeg2video", "vc1", "vp8", "vp9", "av1"];
+        var counts = (libraryCodecs ?? new Dictionary<string, int>())
+            .GroupBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Value), StringComparer.OrdinalIgnoreCase);
+        var candidates = counts.Count > 0 ? decodable.Where(counts.ContainsKey).ToList() : ["h264", "hevc"];
+        var off = candidates.Where(c => !decodingCodecs.Contains(c, StringComparer.OrdinalIgnoreCase)).ToList();
+        var hevcOn = decodingCodecs.Contains("hevc", StringComparer.OrdinalIgnoreCase);
+        var tenBitOff = hevcOn && !tenBitHevc && (counts.Count == 0 || likelyTenBitHevc > 0);
+        if (off.Count == 0 && !tenBitOff)
+        {
+            return null;
+        }
+
+        string Name(string codec) => codec switch
+        {
+            "h264" => "H.264",
+            "hevc" => "HEVC",
+            "mpeg2video" => "MPEG-2",
+            "vc1" => "VC-1",
+            "vp8" => "VP8",
+            "vp9" => "VP9",
+            "av1" => "AV1",
+            _ => codec
+        };
+        var names = off.Select(Name).ToList();
+        if (tenBitOff)
+        {
+            names.Add("10-bit HEVC");
+        }
+
+        var list = names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+        var files = off.Sum(c => counts.GetValueOrDefault(c)) + (tenBitOff ? likelyTenBitHevc : 0);
+        var message = "Jellyfin isn't set to decode " + list + " on the GPU"
+            + (counts.Count > 0 && files > 0 ? string.Create(CultureInfo.InvariantCulture, $", which {files} of your files use") : string.Empty)
+            + ". Re-encoding them decodes on the CPU, which can be several times slower than the GPU encodes. Turn hardware decoding on in Jellyfin, under Dashboard, Playback, Transcoding.";
+        return new DecodingProblem(off, tenBitOff, message);
+    }
+
+    /// <summary>
     /// Takes the middle run of each number at once, as frames a second in total.
     /// </summary>
     /// <param name="totals">The total frames a second of each run: first the runs of one at a time, then of two, and so on.</param>
@@ -393,8 +459,10 @@ internal static partial class GpuParsing
         var filmBest = film.Max();
         var share = filmBest / encoderBest;
         var numbers = string.Create(CultureInfo.InvariantCulture, $"{Math.Round(filmBest):0} against {Math.Round(encoderBest):0} frames a second at best");
-        return share >= 0.85
-            ? "Encoding your film runs about as fast as the encoder alone (" + numbers + "), so the GPU's encoders are the limit, not reading or decoding the film."
+
+        // Decoding the film always costs something, so a film that gets most of the way to the encoder's speed is the encoder's limit.
+        return share >= 0.75
+            ? "Encoding your film keeps up with the encoder alone (" + numbers + "), so the GPU's encoders are the limit, not reading or decoding the film."
             : string.Create(CultureInfo.InvariantCulture, $"Encoding your film reaches only {Math.Round(share * 100):0}% of what the encoder alone does ({numbers}), so reading or decoding the film is holding it back. That points to a slow drive or network share, or decoding on the CPU.");
     }
 

@@ -36,6 +36,7 @@ public class DataManagerController : ControllerBase
     private readonly WatchHistory _watchHistory;
     private readonly GpuDetector _gpuDetector;
     private readonly GpuTester _gpuTester;
+    private readonly HardwareAcceleration _hardware;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DataManagerController"/> class.
@@ -50,10 +51,12 @@ public class DataManagerController : ControllerBase
     /// <param name="watchHistory">When each file was last watched.</param>
     /// <param name="gpuDetector">Reads what the GPU is.</param>
     /// <param name="gpuTester">Tests how many encodes at once suit the GPU.</param>
-    public DataManagerController(SummaryBuilder summaryBuilder, ITaskManager taskManager, EncodeService encodeService, FrameComparer frameComparer, ResolutionAnalyzer resolutionAnalyzer, MediaDeleter mediaDeleter, LeftoverCleaner leftoverCleaner, WatchHistory watchHistory, GpuDetector gpuDetector, GpuTester gpuTester)
+    /// <param name="hardware">Knows which formats Jellyfin decodes on the GPU.</param>
+    public DataManagerController(SummaryBuilder summaryBuilder, ITaskManager taskManager, EncodeService encodeService, FrameComparer frameComparer, ResolutionAnalyzer resolutionAnalyzer, MediaDeleter mediaDeleter, LeftoverCleaner leftoverCleaner, WatchHistory watchHistory, GpuDetector gpuDetector, GpuTester gpuTester, HardwareAcceleration hardware)
     {
         _gpuDetector = gpuDetector;
         _gpuTester = gpuTester;
+        _hardware = hardware;
         _leftoverCleaner = leftoverCleaner;
         _watchHistory = watchHistory;
         _mediaDeleter = mediaDeleter;
@@ -351,8 +354,13 @@ public class DataManagerController : ControllerBase
             test = GpuTester.Saved(info);
         }
 
+        // Which formats the library holds, so the warning only names those that matter.
+        var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var codecs = report?.Files.Where(f => !string.IsNullOrEmpty(f.VideoCodec)).GroupBy(f => f.VideoCodec, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var tenBit = report?.Files.Count(f => string.Equals(f.VideoCodec, "hevc", StringComparison.OrdinalIgnoreCase) && (f.IsHdr || f.Width >= 3200)) ?? 0;
+
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
-        return Ok(new GpuOverview(info, GpuParsing.Recommended(info, config), test));
+        return Ok(new GpuOverview(info, GpuParsing.Recommended(info, config), test, _hardware.DecodingProblem(codecs, tenBit)));
     }
 
     /// <summary>

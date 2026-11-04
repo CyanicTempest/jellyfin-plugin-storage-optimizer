@@ -66,6 +66,20 @@ public sealed class HardwareAcceleration
     }
 
     /// <summary>
+    /// Finds the formats in a library that Jellyfin isn't set to decode on the GPU.
+    /// </summary>
+    /// <param name="libraryCodecs">How many files use each video codec, or null if there hasn't been a scan.</param>
+    /// <param name="likelyTenBitHevc">How many HEVC files are HDR or 4K.</param>
+    /// <returns>What's off, or null.</returns>
+    public DecodingProblem? DecodingProblem(IReadOnlyDictionary<string, int>? libraryCodecs, int likelyTenBitHevc)
+    {
+        var options = _configurationManager.GetEncodingOptions();
+        return options.EnableHardwareEncoding
+            ? GpuParsing.DecodeProblem(options.HardwareAccelerationType, options.HardwareDecodingCodecs ?? [], options.EnableDecodingColorDepth10Hevc, libraryCodecs, likelyTenBitHevc)
+            : null;
+    }
+
+    /// <summary>
     /// Works out the ffmpeg arguments that set up the GPU for one encode, which go before the input.
     /// </summary>
     /// <param name="encoder">The encoder the encode uses.</param>
