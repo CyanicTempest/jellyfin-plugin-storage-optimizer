@@ -86,6 +86,8 @@
             #DataManagerDashboardPage .dm-chip.dm-chip-acc { background: var(--dm-tint); color: var(--dm-tint-ink); }
             #DataManagerDashboardPage .dm-chip.dm-chip-ok { background: var(--dm-ok-chip); color: var(--dm-ok); }
             #DataManagerDashboardPage .dm-chip.dm-chip-warn { background: var(--dm-warning-chip); color: var(--dm-warning); }
+            #DataManagerDashboardPage .dm-chip.dm-chip-bad { background: var(--dm-error-bg); color: var(--dm-error); }
+            #DataManagerDashboardPage .dm-metrics.dm-stale { opacity: 0.4; }
             #DataManagerDashboardPage .dm-chip .dm-ic { width: 13px; height: 13px; }
             /* Small labels beside a title: HDR, Multi-lang, Suggested, Compare */
             #DataManagerDashboardPage .dm-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px; border: 0; font: inherit; font-size: 11.5px; font-weight: 500; line-height: 1; white-space: nowrap; vertical-align: middle; background: var(--dm-raised); color: var(--dm-ink-2); }
@@ -887,7 +889,7 @@
                                         <span id="dmPreviewName" class="dm-preview-file dm-faint"></span>
                                     </div>
                                     <div class="dm-segmented" role="radiogroup" aria-label="View">
-                                        <label><input type="radio" name="dmPreviewView" value="swipe" checked />Side by side</label>
+                                        <label><input type="radio" name="dmPreviewView" value="swipe" checked />Slider</label>
                                         <label><input type="radio" name="dmPreviewView" value="flip" />Flip</label>
                                         <label><input type="radio" name="dmPreviewView" value="map" />Detail map</label>
                                     </div>
@@ -1071,7 +1073,7 @@
                                     <select id="dmCompareSecond" class="dm-dropdown" aria-label="Right side"></select>
                                 </div>
                                 <div class="dm-segmented" role="radiogroup" aria-label="View">
-                                    <label><input type="radio" name="dmCompareView" value="swipe" checked />Side by side</label>
+                                    <label><input type="radio" name="dmCompareView" value="swipe" checked />Slider</label>
                                     <label><input type="radio" name="dmCompareView" value="flip" />Flip</label>
                                     <label><input type="radio" name="dmCompareView" value="map" />Detail map</label>
                                 </div>
@@ -4781,7 +4783,11 @@
 
                 // Four tiles for how much of the picture the second frame kept, and a verdict in words.
                 // A preview also says what would keep more.
+                // Where the verdict changes. These are starting points until they've been tuned against real encodes.
+                var verdictBands = { closeDetail: 0.92, closeSoftest: 0.85, softerDetail: 0.82, softerSoftest: 0.7 };
+
                 function renderScores(result, isPreview, metrics, verdict) {
+                    metrics.classList.remove('dm-stale');
                     var tiles = [];
                     if (result.DetailKept != null) { tiles.push([Math.round(result.DetailKept * 100) + '%', 'Fine detail kept']); }
                     if (result.SoftestKept != null) { tiles.push([Math.round(result.SoftestKept * 100) + '%', 'Softest areas kept']); }
@@ -4791,10 +4797,12 @@
 
                     var html = '';
                     if (result.DetailKept != null) {
+                        // The softest areas show what a low quality costs when the busiest detail still holds up.
                         var kept = result.DetailKept;
-                        html = kept >= 0.92 ? '<span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Very close</span>Fine texture is kept.'
-                            : kept >= 0.82 ? '<span class="dm-chip dm-chip-warn">A little softer</span>Some fine texture and grain is smoothed, mostly where the detail map is bright.'
-                                : '<span class="dm-chip dm-chip-warn">Noticeably softer</span>Fine texture, such as backgrounds and grain, is smoothed.' + (isPreview ? ' A higher quality or a slower speed keeps more.' : '');
+                        var softest = result.SoftestKept != null ? result.SoftestKept : kept;
+                        html = kept >= verdictBands.closeDetail && softest >= verdictBands.closeSoftest ? '<span class="dm-chip dm-chip-ok">' + icon('check', 13) + 'Very close</span>Fine texture and smooth areas are kept.'
+                            : kept >= verdictBands.softerDetail && softest >= verdictBands.softerSoftest ? '<span class="dm-chip dm-chip-warn">Softer in places</span>' + (kept >= verdictBands.closeDetail ? 'Fine texture is kept. Smooth areas lose some detail.' : 'Some fine texture and grain is smoothed, mostly where the detail map is bright.')
+                                : '<span class="dm-chip dm-chip-bad">Clearly softer</span>Smooth areas and fine texture lose visible detail.' + (isPreview ? ' A higher quality or a slower speed keeps more.' : '');
                     } else if (result.Ssim != null) {
                         html = 'This frame is too plain to measure detail on.';
                     }
@@ -4802,7 +4810,15 @@
                     verdict.innerHTML = html;
                 }
 
+                // The last scores stay dimmed while the new ones are worked out, so they can't be read as the new setting's.
+                function markScoresStale(metrics, verdict) {
+                    if (!metrics.children.length) { return; }
+                    metrics.classList.add('dm-stale');
+                    verdict.innerHTML = '<span class="dm-chip">Measuring…</span>';
+                }
+
                 function clearScores(metrics, verdict) {
+                    metrics.classList.remove('dm-stale');
                     metrics.innerHTML = '';
                     verdict.innerHTML = '';
                 }
@@ -4925,6 +4941,7 @@
                         showPreview(result);
                         return;
                     }
+                    markScoresStale($('#dmMetrics'), $('#dmPreviewScores'));
                     previewViewer.busy(timeBusy
                         ? 'Waiting for the timing test to finish, then encoding a second of video here…'
                         : 'Encoding a second of video here with these settings…');
