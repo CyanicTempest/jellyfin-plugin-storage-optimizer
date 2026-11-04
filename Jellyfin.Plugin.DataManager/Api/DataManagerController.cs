@@ -257,9 +257,15 @@ public class DataManagerController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ResolutionAnalysis>> Analyse([FromRoute] Guid itemId, CancellationToken cancellationToken)
     {
+        // Closing the re-encode window stops the checks it asked for, whether or not the browser drops the request.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _resolutionAnalyzer.CheckToken);
         try
         {
-            return Ok(await _resolutionAnalyzer.AnalyseAsync(itemId, cancellationToken).ConfigureAwait(false));
+            return Ok(await _resolutionAnalyzer.AnalyseAsync(itemId, linked.Token).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+        {
+            return StatusCode(StatusCodes.Status499ClientClosedRequest);
         }
         catch (FileNotFoundException ex)
         {
@@ -269,6 +275,18 @@ public class DataManagerController : ControllerBase
         {
             return Problem(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Stops the detail checks the re-encode window asked for, those running and those waiting. Finished ones are kept.
+    /// </summary>
+    /// <returns>No content.</returns>
+    [HttpDelete("Analyse")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult CancelAnalyses()
+    {
+        _resolutionAnalyzer.CancelChecks();
+        return NoContent();
     }
 
     /// <summary>

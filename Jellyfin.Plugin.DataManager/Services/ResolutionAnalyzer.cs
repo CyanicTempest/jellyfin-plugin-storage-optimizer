@@ -43,9 +43,13 @@ public sealed partial class ResolutionAnalyzer : IDisposable
     private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<ResolutionAnalyzer> _logger;
 
-    // One analysis at a time: each decodes and rescales full-size frames.
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    // How many ffmpegs run at once, whatever number of videos and sample frames are waiting: each decodes and
+    // rescales full-size frames, and a library check shouldn't take the whole machine from encoding and playback.
+    private readonly SemaphoreSlim _processes = new(Math.Clamp(Environment.ProcessorCount / 2, 2, 4));
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
     private readonly Lock _cacheLock = new();
+    private readonly Lock _checkLock = new();
+    private CancellationTokenSource _checks = new();
     private Dictionary<string, ResolutionAnalysis>? _cache;
 
     /// <summary>
@@ -59,6 +63,21 @@ public sealed partial class ResolutionAnalyzer : IDisposable
         _libraryManager = libraryManager;
         _mediaEncoder = mediaEncoder;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Gets a token that is cancelled when <see cref="CancelChecks"/> is called. Checks the user asked for take it, so
+    /// closing the re-encode window stops them, and the checks an encode does for itself don't.
+    /// </summary>
+    public CancellationToken CheckToken
+    {
+        get
+        {
+            lock (_checkLock)
+            {
+                return _checks.Token;
+            }
+        }
     }
 
     private static string CachePath => Path.Combine(Plugin.Instance?.DataFolderPath ?? throw new InvalidOperationException("Plugin is not loaded."), CacheFileName);
@@ -86,6 +105,21 @@ public sealed partial class ResolutionAnalyzer : IDisposable
 
         var file = new FileInfo(video.Path);
         return file.Exists && file.Length == analysis.SizeBytes && file.LastWriteTimeUtc == analysis.ModifiedUtc ? analysis : null;
+    }
+
+    /// <summary>
+    /// Stops the checks the user asked for, those that are running and those waiting. Finished checks are kept.
+    /// </summary>
+    public void CancelChecks()
+    {
+        CancellationTokenSource old;
+        lock (_checkLock)
+        {
+            old = _checks;
+            _checks = new CancellationTokenSource();
+        }
+
+        old.Cancel();
     }
 
     /// <summary>
@@ -144,52 +178,73 @@ public sealed partial class ResolutionAnalyzer : IDisposable
 
         var candidates = Resolutions.SmallerThan(width, height).Select(box => Resolutions.Fit(width, height, box)).ToList();
 
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        if (candidates.Count > 0)
         {
-            if (candidates.Count > 0)
+            var scores = candidates.Select(_ => new List<double>()).ToList();
+            var duration = TimeSpan.FromTicks(video.RunTimeTicks ?? 0).TotalSeconds;
+
+            // The sample frames are independent, so they're taken together, within the limit on ffmpegs at once.
+            using var sampling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var samples = (duration > 10 ? _samplePoints : [0.0]).Select(async point =>
             {
-                var scores = candidates.Select(_ => new List<double>()).ToList();
-                var duration = TimeSpan.FromTicks(video.RunTimeTicks ?? 0).TotalSeconds;
-                foreach (var point in duration > 10 ? _samplePoints : [0.0])
+                try
                 {
-                    var log = await RunFfmpegAsync(Arguments(video.Path, duration * point, width, height, candidates), cancellationToken).ConfigureAwait(false);
-                    foreach (Match match in SsimPattern().Matches(log))
-                    {
-                        var index = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-                        if (index < scores.Count && double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-                        {
-                            scores[index].Add(value);
-                        }
-                    }
+                    return await SampleAsync(Arguments(video.Path, duration * point, width, height, candidates), sampling.Token).ConfigureAwait(false);
                 }
-
-                if (scores.Any(s => s.Count == 0))
+                catch (Exception) when (!sampling.IsCancellationRequested)
                 {
-                    throw new InvalidOperationException("ffmpeg didn't report how alike the frames were.");
+                    // One failing is the end of the check, so the others stop rather than carry on for nothing.
+                    await sampling.CancelAsync().ConfigureAwait(false);
+                    throw;
                 }
+            }).ToList();
+            var all = Task.WhenAll(samples);
+            string[] logs;
+            try
+            {
+                logs = await all.ConfigureAwait(false);
+            }
+            catch (Exception) when (all.Exception is { } failures && !cancellationToken.IsCancellationRequested)
+            {
+                // The samples that stopped because another failed aren't the reason.
+                var cause = failures.InnerExceptions.FirstOrDefault(e => e is not OperationCanceledException) ?? failures.InnerExceptions[0];
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cause).Throw();
+                throw;
+            }
 
-                // Walk down from the largest smaller size, stopping at the first that loses detail.
-                var keepsDetail = true;
-                for (var i = 0; i < candidates.Count; i++)
+            foreach (var log in logs)
+            {
+                foreach (Match match in SsimPattern().Matches(log))
                 {
-                    var check = new ResolutionCheck(candidates[i].Width, candidates[i].Height, scores[i].Average(), scores[i].Min());
-                    analysis.Checks.Add(check);
-                    keepsDetail = keepsDetail && check.Similarity >= AverageThreshold && check.LowestSimilarity >= FrameThreshold;
-                    if (keepsDetail)
+                    var index = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+                    if (index < scores.Count && double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
                     {
-                        analysis.DetailWidth = check.Width;
-                        analysis.DetailHeight = check.Height;
+                        scores[index].Add(value);
                     }
                 }
             }
 
-            await SaveAsync(analysis, cancellationToken).ConfigureAwait(false);
+            if (scores.Any(s => s.Count == 0))
+            {
+                throw new InvalidOperationException("ffmpeg didn't report how alike the frames were.");
+            }
+
+            // Walk down from the largest smaller size, stopping at the first that loses detail.
+            var keepsDetail = true;
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var check = new ResolutionCheck(candidates[i].Width, candidates[i].Height, scores[i].Average(), scores[i].Min());
+                analysis.Checks.Add(check);
+                keepsDetail = keepsDetail && check.Similarity >= AverageThreshold && check.LowestSimilarity >= FrameThreshold;
+                if (keepsDetail)
+                {
+                    analysis.DetailWidth = check.Width;
+                    analysis.DetailHeight = check.Height;
+                }
+            }
         }
-        finally
-        {
-            _gate.Release();
-        }
+
+        await SaveAsync(analysis, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
             "Storage Optimizer found {Path} holds about {Width}x{Height} of real detail",
@@ -200,7 +255,12 @@ public sealed partial class ResolutionAnalyzer : IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => _gate.Dispose();
+    public void Dispose()
+    {
+        _processes.Dispose();
+        _saveLock.Dispose();
+        _checks.Dispose();
+    }
 
     private static List<string> Arguments(string path, double position, int width, int height, List<(int Width, int Height)> candidates)
     {
@@ -236,6 +296,20 @@ public sealed partial class ResolutionAnalyzer : IDisposable
         }
 
         return args;
+    }
+
+    // Waits for a free place among the ffmpegs, then takes the frame.
+    private async Task<string> SampleAsync(IList<string> args, CancellationToken cancellationToken)
+    {
+        await _processes.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RunFfmpegAsync(args, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _processes.Release();
+        }
     }
 
     private async Task<string> RunFfmpegAsync(IList<string> args, CancellationToken cancellationToken)
@@ -321,7 +395,18 @@ public sealed partial class ResolutionAnalyzer : IDisposable
             json = JsonSerializer.Serialize(cache);
         }
 
-        await File.WriteAllTextAsync(CachePath, json, cancellationToken).ConfigureAwait(false);
+        // One write at a time, to a file beside the saved one that's moved over it, so a reader never sees half of it.
+        await _saveLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var tempPath = CachePath + ".tmp";
+            await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
+            File.Move(tempPath, CachePath, true);
+        }
+        finally
+        {
+            _saveLock.Release();
+        }
     }
 
     // ffmpeg logs e.g. "[ssim@c1 @ 0x55d0] SSIM Y:0.996776 (24.9) All:0.996776 (24.9)".

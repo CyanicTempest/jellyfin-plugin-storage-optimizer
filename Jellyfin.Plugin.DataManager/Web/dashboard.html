@@ -2149,33 +2149,59 @@
                     $('#dmDetailResults').appendChild(item);
                 }
 
-                // Checks the selected files one at a time; the server saves each result, so later checks are instant.
+                // Checks the selected files three at a time; the server saves each result, so later checks are instant. The
+                // check ends when the re-encode window closes, and the server drops what's waiting.
+                var detailRun = null;
+
                 function checkDetail() {
                     var files = scopeFiles();
-                    var index = 0;
+                    var run = detailRun = {};
+                    var next = 0;
+                    var started = 0;
+                    var done = 0;
                     $('#dmDetailResults').textContent = '';
                     $('#dmCheckDetail').disabled = true;
-                    function next() {
-                        if (index >= files.length) {
-                            $('#dmDetailStatus').textContent = '';
-                            $('#dmCheckDetail').disabled = false;
-                            renderMedia();
-                            requestEstimate();
+                    function status(f) {
+                        $('#dmDetailStatus').textContent = files.length > 1 ? 'Checked ' + done + ' of ' + files.length + '…' : 'Checking ' + titleOf(f) + '…';
+                    }
+                    function worker() {
+                        if (detailRun !== run) { return; }
+                        if (next >= files.length) {
+                            if (done === files.length) {
+                                detailRun = null;
+                                $('#dmDetailStatus').textContent = '';
+                                $('#dmCheckDetail').disabled = false;
+                                renderMedia(true);
+                                requestEstimate();
+                            }
                             return;
                         }
-                        var f = files[index++];
-                        $('#dmDetailStatus').textContent = 'Checking ' + titleOf(f) + (files.length > 1 ? ' (' + index + ' of ' + files.length + ')' : '') + '…';
+                        var f = files[next++];
+                        started++;
+                        status(f);
                         ApiClient.getJSON(ApiClient.getUrl('DataManager/Analyse/' + dashedGuid(f.ItemId))).then(function (analysis) {
                             f.DetailWidth = analysis.DetailWidth;
                             f.DetailHeight = analysis.DetailHeight;
+                            return analysis;
+                        }, function () { return null; }).then(function (analysis) {
+                            if (detailRun !== run) { return; }
+                            done++;
                             addDetailResult(f, analysis);
-                            next();
-                        }, function () {
-                            addDetailResult(f, null);
-                            next();
+                            status(f);
+                            worker();
                         });
                     }
-                    next();
+                    for (var i = 0; i < 3; i++) { worker(); }
+                }
+
+                // Ends a check that's running, as when the window closes. What was found is kept.
+                function stopDetail() {
+                    if (!detailRun) { return; }
+                    detailRun = null;
+                    $('#dmCheckDetail').disabled = false;
+                    $('#dmDetailStatus').textContent = '';
+                    ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('DataManager/Analyse') }).then(null, function () { /* the server stops them anyway once they're dropped */ });
+                    renderMedia(true);
                 }
 
                 // Estimates and timings are kept by the settings and files they were for, so going back to a file or to
@@ -3372,6 +3398,7 @@
                 }
 
                 function closeDialog() {
+                    stopDetail();
                     $('#dmDialog').classList.add('dm-hidden');
                     scopeId = null;
                     $('#dmEncodeDialog').classList.remove('dm-scope-file', 'dm-rail-open');
@@ -5475,6 +5502,7 @@
                 });
 
                 page.addEventListener('pagehide', function () {
+                    stopDetail();
                     clearTimeout(filterTimer);
                     if (mediaObserver) { mediaObserver.disconnect(); }
                     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
