@@ -126,6 +126,7 @@
             #DataManagerDashboardPage .dm-status { margin: 4px 0 0; font-size: 13px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-empty { padding: 28px 24px; color: var(--dm-ink-2); line-height: 1.55; }
             #DataManagerDashboardPage .dm-empty p { margin: 0; max-width: 60ch; }
+            #DataManagerDashboardPage .dm-empty .dm-button { margin-top: 14px; }
             /* ---------- Storage ---------- */
             #DataManagerDashboardPage .dm-hero { padding: 24px; }
             #DataManagerDashboardPage .dm-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 24px 40px; flex-wrap: wrap; margin-bottom: 26px; }
@@ -213,6 +214,11 @@
             #DataManagerDashboardPage .dm-row .dm-r { text-align: right; }
             #DataManagerDashboardPage .dm-lh .dm-on { color: var(--dm-ink); }
             #DataManagerDashboardPage .dm-lh label { display: contents; }
+            #DataManagerDashboardPage .dm-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+            #DataManagerDashboardPage .dm-sort.dm-r { text-align: right; }
+            #DataManagerDashboardPage .dm-sort:hover { color: var(--dm-ink); }
+            #DataManagerDashboardPage .dm-sort.dm-on::after { content: " \2193"; }
+            #DataManagerDashboardPage .dm-sort.dm-on[data-sort="name"]::after { content: " \2191"; }
             #DataManagerDashboardPage .dm-row { min-height: 68px; padding-block: 10px; border-bottom: 1px solid var(--dm-soft); position: relative; content-visibility: auto; contain-intrinsic-size: auto 68px; }
             #DataManagerDashboardPage .dm-row:hover { background: var(--dm-hover); }
             #DataManagerDashboardPage .dm-row.dm-selected { background: var(--dm-tint); }
@@ -220,6 +226,8 @@
             #DataManagerDashboardPage .dm-poster { position: relative; width: 44px; height: 64px; border-radius: 5px; overflow: hidden; background: linear-gradient(160deg, var(--p1, #3a5a7a), var(--p2, #1b2a3c)); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
             #DataManagerDashboardPage .dm-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
             #DataManagerDashboardPage .dm-main { min-width: 0; }
+            #DataManagerDashboardPage #dmMedia .dm-row { cursor: pointer; }
+            #DataManagerDashboardPage #dmMedia .dm-row:hover { background: var(--dm-hover); }
             #DataManagerDashboardPage .dm-t { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14.5px; font-weight: 500; line-height: 1.25; }
             #DataManagerDashboardPage .dm-t > .dm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
             #DataManagerDashboardPage .dm-t > .dm-year { font-weight: 400; font-size: 13px; color: var(--dm-ink-3); flex: none; }
@@ -654,6 +662,7 @@
 
                 <section id="dmEmpty" class="dm-card dm-empty dm-hidden">
                     <p>Scan your libraries to measure every video file and find the ones worth re-encoding. A scan also runs every night at 3am.</p>
+                    <button type="button" id="dmEmptyScan" class="dm-button dm-primary">Scan now</button>
                 </section>
 
                 <div id="dmContent" class="dm-stack dm-hidden">
@@ -714,7 +723,9 @@
                                     <option value="bitrate">Sort: Bitrate</option>
                                     <option value="name">Sort: Name</option>
                                     <option value="watched">Sort: Last watched</option>
-                                    <option value="type">Group by codec</option>
+                                    <optgroup label="Group">
+                                        <option value="type">Group by codec</option>
+                                    </optgroup>
                                 </select>
                             </div>
                             <div class="dm-tools">
@@ -737,9 +748,9 @@
                         <div class="dm-lh">
                             <input type="checkbox" id="dmSelectShown" class="dm-select-shown" aria-label="Select everything shown" />
                             <span class="dm-skip"></span>
-                            <span id="dmListHead">Title</span>
-                            <span class="dm-r dm-skip">Size</span>
-                            <span class="dm-r dm-on">Could free</span>
+                            <button type="button" class="dm-sort" data-sort="name">Title</button>
+                            <button type="button" class="dm-r dm-skip dm-sort" data-sort="size">Size</button>
+                            <button type="button" class="dm-r dm-sort" data-sort="saving">Could free</button>
                         </div>
                         <div id="dmMedia"></div>
                     </section>
@@ -1867,7 +1878,9 @@
                     end.insertAdjacentHTML('beforebegin', mediaRows.slice(mediaDrawn, upTo).join(''));
                     mediaDrawn = upTo;
                     if (mediaDrawn === mediaRows.length) {
-                        end.textContent = 'All ' + plural(visibleFiles().length, 'file') + ' shown';
+                        var fileCount = visibleFiles().length;
+                        var titleCount = visibleMainIds().length;
+                        end.textContent = titleCount === fileCount ? plural(fileCount, 'file') : plural(titleCount, 'title') + ', ' + plural(fileCount, 'file');
                         if (mediaObserver) { mediaObserver.disconnect(); }
                     }
                 }
@@ -1899,6 +1912,10 @@
                     mainIdsCache = null;
                     if (mediaObserver) { mediaObserver.disconnect(); }
                     var sort = $('#dmSort').value;
+                    page.querySelectorAll('.dm-sort').forEach(function (head) {
+                        head.classList.toggle('dm-on', head.dataset.sort === sort);
+                        head.setAttribute('aria-pressed', head.dataset.sort === sort);
+                    });
                     var files = visibleFiles();
                     if (!summary.Files.length) {
                         $('#dmMedia').innerHTML = '<p class="dm-empty-list">No video files found. Check that Jellyfin has finished scanning your libraries, then scan again.</p>';
@@ -3789,6 +3806,7 @@
                     var tile = label.closest('.dm-tile');
                     tile.classList.remove('dm-needs');
                     number.textContent = '';
+                    $('#dmDupOpen').disabled = !d || !!d.NeedsScan || !d.Groups.length;
                     var purpose = 'Finds movies and episodes that are in your libraries more than once.';
                     if (!d) { label.textContent = summary && summary.GeneratedAt ? 'Loading…' : 'Scan your libraries first. ' + purpose; return; }
                     if (d.NeedsScan) { label.textContent = 'Scan again to look. ' + purpose; return; }
@@ -5511,6 +5529,13 @@
                         if (again) { again.focus(); }
                         return;
                     }
+                    // The rest of a row does what its name or box would: opens a show or season, or ticks a file.
+                    var row = e.target.closest('#dmMedia .dm-row');
+                    if (row && !e.target.closest('button, a, input, label') && !String(window.getSelection())) {
+                        var rowTarget = row.querySelector('.dm-folder') || row.querySelector('.dm-select');
+                        if (rowTarget) { rowTarget.click(); }
+                        return;
+                    }
                     var frame = e.target.closest('.dm-frame[data-position]');
                     if (frame) {
                         preview.position = Number(frame.dataset.position);
@@ -5564,6 +5589,12 @@
 
                 try { $('#dmSort').value = localStorage.getItem('dataManager.sort') || 'saving'; } catch (e) { /* storage unavailable */ }
                 if (!$('#dmSort').value) { $('#dmSort').value = 'saving'; }
+                page.querySelectorAll('.dm-sort').forEach(function (head) {
+                    head.addEventListener('click', function () {
+                        $('#dmSort').value = head.dataset.sort;
+                        $('#dmSort').dispatchEvent(new Event('change'));
+                    });
+                });
                 $('#dmSort').addEventListener('change', function () {
                     try { localStorage.setItem('dataManager.sort', $('#dmSort').value); } catch (e) { /* storage unavailable */ }
                     if (summary && summary.GeneratedAt) { renderMedia(); }
@@ -5595,6 +5626,7 @@
                 $('#dmDeleteButton').addEventListener('click', confirmDelete);
                 $('#dmDupDelete').addEventListener('click', confirmDupDelete);
                 $('#dmDupOpen').addEventListener('click', openDupDialog);
+                $('#dmEmptyScan').addEventListener('click', function () { $('#dmScanButton').click(); });
                 $('#dmDupClose').addEventListener('click', closeDupDialog);
                 $('#dmDupDialog').addEventListener('click', function (e) { if (e.target.id === 'dmDupDialog') { closeDupDialog(); } });
                 $('#dmDupSelectAll').addEventListener('click', function () {
