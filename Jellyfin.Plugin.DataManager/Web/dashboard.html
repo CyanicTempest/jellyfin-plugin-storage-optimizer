@@ -163,6 +163,12 @@
             /* ---------- Encoding queue ---------- */
             #DataManagerDashboardPage .dm-jobs { overflow: hidden; }
             #DataManagerDashboardPage .dm-jobs-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; }
+            #DataManagerDashboardPage .dm-jobs-head .dm-h2 { flex: none; }
+            #DataManagerDashboardPage .dm-jobs-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer; }
+            #DataManagerDashboardPage .dm-jobs-toggle:hover { color: var(--dm-tint-ink); }
+            #DataManagerDashboardPage .dm-jobs-toggle .dm-ic { flex: none; transition: transform 0.15s; }
+            #DataManagerDashboardPage .dm-jobs-toggle[aria-expanded="true"] .dm-ic { transform: rotate(90deg); }
+            #DataManagerDashboardPage .dm-jobs.dm-rolled :is(#dmClearQueue, #dmClearFinished) { display: none; }
             #DataManagerDashboardPage .dm-job { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 176px; gap: 8px 24px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--dm-soft); }
             #DataManagerDashboardPage .dm-job-season { padding-left: 14px; }
             #DataManagerDashboardPage .dm-job-toggle { display: inline-flex; align-items: flex-start; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -191,8 +197,10 @@
             #DataManagerDashboardPage .dm-tile-i { width: 44px; height: 44px; border-radius: 10px; background: var(--dm-raised); display: flex; align-items: center; justify-content: center; color: var(--dm-ink-2); flex: none; }
             #DataManagerDashboardPage .dm-tile-i .dm-ic { width: 20px; height: 20px; }
             #DataManagerDashboardPage .dm-tile.dm-needs .dm-tile-i { background: var(--dm-warning-chip); color: var(--dm-warning); }
-            #DataManagerDashboardPage .dm-tile-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+            #DataManagerDashboardPage .dm-tile-b { container-type: inline-size; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
             #DataManagerDashboardPage .dm-tile-t { font-size: 14px; font-weight: 600; }
+            #DataManagerDashboardPage .dm-tile-when { margin-left: 2px; font-size: 13px; font-weight: 400; color: var(--dm-ink-3); white-space: nowrap; }
+            @container (max-width: 190px) { #DataManagerDashboardPage .dm-tile-when span { display: none; } }
             #DataManagerDashboardPage .dm-tile-n:empty { display: none; }
             #DataManagerDashboardPage .dm-tile-n { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-tile-l { font-size: 13px; color: var(--dm-ink-2); }
@@ -591,7 +599,8 @@
                 #DataManagerDashboardPage .dm-bar-track { grid-column: 1 / -1; grid-row: 2; }
                 #DataManagerDashboardPage .dm-bar-gap { display: none; }
                 #DataManagerDashboardPage .dm-legend { gap: 8px 18px; }
-                #DataManagerDashboardPage .dm-jobs-head { padding: 14px 16px; }
+                #DataManagerDashboardPage .dm-jobs-head { flex-wrap: wrap; padding: 14px 16px; }
+                #DataManagerDashboardPage .dm-jobs-toggle { min-height: 36px; }
                 #DataManagerDashboardPage .dm-jobs-now { padding: 11px 16px; }
                 #DataManagerDashboardPage .dm-job { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 14px 16px; }
                 #DataManagerDashboardPage .dm-job-actions { justify-content: flex-start; }
@@ -684,13 +693,15 @@
 
                     <section id="dmJobsBlock" class="dm-card dm-jobs dm-hidden" aria-label="Encoding queue">
                         <div class="dm-jobs-head">
-                            <h2 class="dm-h2">Encoding</h2>
+                            <h2 class="dm-h2"><button type="button" id="dmJobsToggle" class="dm-jobs-toggle" aria-expanded="true" aria-controls="dmJobsBody"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>Encoding</button></h2>
                             <span id="dmJobCounts" class="dm-tools"></span>
                             <button type="button" id="dmClearQueue" class="dm-small-button dm-quiet dm-hidden" title="Remove what's waiting, and failed or cancelled jobs. Encoding, paused and finished encodes stay.">Clear queue</button>
                             <button type="button" id="dmClearFinished" class="dm-small-button dm-quiet dm-hidden" title="Take finished encodes off this list. Their files stay as they are.">Clear finished</button>
                         </div>
-                        <div id="dmJobsNow" class="dm-jobs-now dm-hidden" role="status"><i></i><span></span></div>
-                        <div id="dmJobs"></div>
+                        <div id="dmJobsBody">
+                            <div id="dmJobsNow" class="dm-jobs-now dm-hidden" role="status"><i></i><span></span></div>
+                            <div id="dmJobs"></div>
+                        </div>
                     </section>
                 </div>
 
@@ -709,7 +720,7 @@
                         </div>
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m9.5 10.5 5 5"/><path d="m14.5 10.5-5 5"/></svg></div>
-                            <div class="dm-tile-b"><span class="dm-tile-t">Leftovers</span><span id="dmLeftoverNumber" class="dm-tile-n"></span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Leftovers <span id="dmLeftoverChecked" class="dm-tile-when"></span></span><span id="dmLeftoverNumber" class="dm-tile-n"></span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span></div>
                             <button type="button" id="dmLeftoverOpen" class="dm-button">Review</button>
                         </div>
                     </div>
@@ -4002,6 +4013,19 @@
                     button.textContent = items.length ? 'Delete ' + plural(items.length, 'leftover') + ', ' + formatBytes(bytes) : 'Delete';
                 }
 
+                // How long ago, counted in calendar days on this device.
+                function checkedWhen(date) {
+                    var today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    var day = new Date(date);
+                    day.setHours(0, 0, 0, 0);
+                    var days = Math.round((today - day) / 86400000);
+                    if (days <= 0) { return 'today'; }
+                    if (days === 1) { return 'yesterday'; }
+                    if (days < 7) { return days + ' days ago'; }
+                    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+                }
+
                 function renderLeftoverCard(progress) {
                     var report = leftovers || { Items: [] };
                     var items = report.Items || [];
@@ -4009,8 +4033,13 @@
                     var number = $('#dmLeftoverNumber');
                     var tile = label.closest('.dm-tile');
                     var text;
+                    var checked = $('#dmLeftoverChecked');
+                    var checkedAt = report.GeneratedAt && progress == null ? new Date(report.GeneratedAt) : null;
+                    // The word goes when the tile is too narrow to hold it on one line; the tooltip still says what the date is.
+                    checked.innerHTML = checkedAt ? '<span>checked </span>' + escapeHtml(checkedWhen(checkedAt)) : '';
+                    checked.title = checkedAt ? 'Last checked ' + checkedAt.toLocaleString() : '';
                     number.textContent = '';
-                    var purpose = 'Finds metadata and trickplay images left behind by deleted videos, and sample clips';
+                    var purpose = 'Metadata and trickplay images from deleted videos, and sample clips';
                     if (progress != null) {
                         number.textContent = Math.round(progress) + '%';
                         text = 'Checking for leftovers…';
@@ -4020,9 +4049,8 @@
                     } else if (!report.GeneratedAt) {
                         text = 'Not checked yet. ' + purpose + '.';
                     } else {
-                        var checkedAt = new Date(report.GeneratedAt);
                         number.textContent = 'Nothing new';
-                        text = 'Checked ' + checkedAt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + '. ' + purpose;
+                        text = purpose;
                     }
                     var extras = extraFiles();
                     if (extras.length && progress == null) {
@@ -5697,6 +5725,25 @@
                     else if (!$('#dmDupDialog').classList.contains('dm-hidden')) { closeDupDialog(); } else if (!$('#dmLeftoverDialog').classList.contains('dm-hidden')) { closeLeftoverDialog(); }
                 });
 
+                // The queue can be rolled up. A phone always starts rolled up; a wider screen remembers the last choice.
+                var jobsPhone = window.matchMedia('(max-width: 760px)').matches;
+                function setJobsOpen(open) {
+                    var toggle = $('#dmJobsToggle');
+                    toggle.setAttribute('aria-expanded', open);
+                    toggle.title = (open ? 'Hide' : 'Show') + ' the queue';
+                    $('#dmJobsBody').classList.toggle('dm-hidden', !open);
+                    $('#dmJobsBlock').classList.toggle('dm-rolled', !open);
+                }
+                var jobsStoredOpen = true;
+                try { jobsStoredOpen = localStorage.getItem('dataManager.queueOpen') !== 'false'; } catch (e) { /* storage unavailable */ }
+                setJobsOpen(!jobsPhone && jobsStoredOpen);
+                $('#dmJobsToggle').addEventListener('click', function () {
+                    var open = this.getAttribute('aria-expanded') !== 'true';
+                    setJobsOpen(open);
+                    if (jobsPhone) { return; }
+                    try { localStorage.setItem('dataManager.queueOpen', open); } catch (e) { /* storage unavailable */ }
+                });
+
                 try { $('#dmSort').value = localStorage.getItem('dataManager.sort') || 'saving'; } catch (e) { /* storage unavailable */ }
                 if (!$('#dmSort').value) { $('#dmSort').value = 'saving'; }
                 page.querySelectorAll('.dm-sort').forEach(function (head) {
@@ -5812,6 +5859,7 @@
                 $('#dmDialogStart').addEventListener('click', confirmStart);
                 $('#dmToastShow').addEventListener('click', function () {
                     $('#dmToast').classList.add('dm-hidden');
+                    setJobsOpen(true);
                     $('#dmJobsBlock').scrollIntoView({ behavior: 'smooth', block: 'center' });
                 });
                 $('#dmDialog').addEventListener('click', function (e) { if (e.target.id === 'dmDialog') { closeDialog(); } });
