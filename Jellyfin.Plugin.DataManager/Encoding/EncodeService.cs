@@ -2269,20 +2269,19 @@ public sealed class EncodeService : IDisposable
 
     private async Task VerifyAsync(string sourcePath, string outputPath, CancellationToken cancellationToken)
     {
-        var sourceDuration = await ProbeDurationAsync(sourcePath, cancellationToken).ConfigureAwait(false);
-        var outputDuration = await ProbeDurationAsync(outputPath, cancellationToken).ConfigureAwait(false);
-        var tolerance = Math.Max(2, sourceDuration * 0.01);
-        if (outputDuration <= 0 || Math.Abs(sourceDuration - outputDuration) > tolerance)
+        var source = await ProbeLengthsAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        var output = await ProbeLengthsAsync(outputPath, cancellationToken).ConfigureAwait(false);
+        if (!DurationCheck.Matches(source, output))
         {
             throw new InvalidOperationException(string.Format(
                 CultureInfo.InvariantCulture,
                 "The new file is {0:F0}s long but the original is {1:F0}s, so it was discarded and the original kept.",
-                outputDuration,
-                sourceDuration));
+                output.VideoSeconds ?? output.FileSeconds,
+                source.VideoSeconds ?? source.FileSeconds));
         }
     }
 
-    private async Task<double> ProbeDurationAsync(string path, CancellationToken cancellationToken)
+    private async Task<MediaLengths> ProbeLengthsAsync(string path, CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo(_mediaEncoder.ProbePath)
         {
@@ -2290,7 +2289,7 @@ public sealed class EncodeService : IDisposable
             UseShellExecute = false,
             CreateNoWindow = true
         };
-        foreach (var arg in new[] { "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path })
+        foreach (var arg in DurationCheck.ProbeArguments(path))
         {
             startInfo.ArgumentList.Add(arg);
         }
@@ -2298,7 +2297,7 @@ public sealed class EncodeService : IDisposable
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start ffprobe.");
         var output = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        return double.TryParse(output.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) ? seconds : 0;
+        return DurationCheck.Parse(output);
     }
 
     private async Task RefreshAsync(Video item, string folderPath, CancellationToken cancellationToken)
