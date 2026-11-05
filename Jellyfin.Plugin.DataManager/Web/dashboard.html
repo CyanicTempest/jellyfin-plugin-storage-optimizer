@@ -174,6 +174,8 @@
             #DataManagerDashboardPage .dm-cleanup-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 16px 20px; }
             #DataManagerDashboardPage .dm-cleanup-head .dm-h2 { flex: none; }
             #DataManagerDashboardPage .dm-cleanup:not(.dm-rolled) #dmCleanupCounts { display: none; }
+            #DataManagerDashboardPage #dmCleanupCounts .dm-ic { display: none; width: 14px; height: 14px; }
+            #DataManagerDashboardPage .dm-chip-name { white-space: pre; }
             #DataManagerDashboardPage .dm-job { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 176px; gap: 8px 24px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--dm-soft); }
             #DataManagerDashboardPage .dm-job-season { padding-left: 14px; }
             #DataManagerDashboardPage .dm-job-toggle { display: inline-flex; align-items: flex-start; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -613,7 +615,10 @@
                 #DataManagerDashboardPage .dm-bar-gap { display: none; }
                 #DataManagerDashboardPage .dm-legend { gap: 8px 18px; }
                 #DataManagerDashboardPage .dm-jobs-head { flex-wrap: wrap; padding: 14px 16px; }
-                #DataManagerDashboardPage .dm-cleanup-head { padding: 14px 16px; }
+                #DataManagerDashboardPage .dm-cleanup-head { flex-wrap: nowrap; padding: 14px 16px; }
+                #DataManagerDashboardPage #dmCleanupCounts { flex: 1 1 0; width: auto; gap: 6px; }
+                #DataManagerDashboardPage #dmCleanupCounts .dm-ic { display: block; }
+                #DataManagerDashboardPage .dm-chip-name { display: none; }
                 #DataManagerDashboardPage .dm-cleanup-body { padding: 14px 16px 16px; }
                 #DataManagerDashboardPage .dm-jobs-toggle { min-height: 36px; }
                 #DataManagerDashboardPage .dm-jobs-now { padding: 11px 16px; }
@@ -4172,7 +4177,10 @@
                     $('#dmCleanupCounts').innerHTML = parts.filter(function (p) {
                         return /^[\d.]+\s?\S*B$/.test(p[1].textContent);
                     }).map(function (p) {
-                        return '<span class="dm-chip dm-chip-warn">' + escapeHtml(p[0] + ' ' + p[1].textContent) + '</span>';
+                        // On a phone the tile's icon stands in for its name, so the heading stays on one line.
+                        var full = p[0] + ' ' + p[1].textContent;
+                        return '<span class="dm-chip dm-chip-warn" role="img" aria-label="' + escapeHtml(full) + '" title="' + escapeHtml(full) + '">' + p[1].closest('.dm-tile').querySelector('.dm-tile-i svg').outerHTML
+                            + '<span class="dm-chip-name">' + escapeHtml(p[0]) + ' </span>' + escapeHtml(p[1].textContent) + '</span>';
                     }).join('');
                 }
 

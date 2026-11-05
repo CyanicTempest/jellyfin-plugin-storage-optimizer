@@ -28,4 +28,4 @@ changelog: >
   Clean up roll up, and a new Customisation panel in Settings sets how each
   starts, and Encoding stays on the page when the queue is empty. The Leftovers
   date has its own line, and a Library filter sits beside Sort, on the same row
-  as Search.
+  as Search. Phones show compact chips on the rolled-up Clean up heading.
