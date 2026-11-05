@@ -88,7 +88,7 @@
             #DataManagerConfigPage .dm-ex .dm-keeps { color: var(--dm-ink-3); }
             #DataManagerConfigPage .dm-ex .dm-bad { color: var(--dm-error); }
             /* ---------- Leaving with unsaved changes ---------- */
-            #DataManagerConfigPage .dm-leave { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 7, 10, 0.72); }
+            #DataManagerConfigPage .dm-leave { position: fixed; inset: 0; z-index: 1350; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 7, 10, 0.72); }
             #DataManagerConfigPage .dm-leave-box { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; padding: 24px; background: var(--dm-panel); border: 1px solid var(--dm-line); border-radius: 14px; box-shadow: 0 28px 70px var(--dm-shadow, rgba(0, 0, 0, 0.55)); }
             #DataManagerConfigPage .dm-leave-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--dm-line); border-radius: 10px; }
             #DataManagerConfigPage .dm-leave-list li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 14px; font-size: 13.5px; border-top: 1px solid var(--dm-soft); }
@@ -754,12 +754,13 @@
 
                 // Back, the sidebar and any other link on the page all ask first.
                 function catchLeaving(e) {
-                    if (!current || !saved || !changes().length || !$('#dmcLeave').classList.contains('dm-hidden')) { return; }
+                    if (!current || !saved || !changes().length) { return; }
                     var link = e.target.closest ? e.target.closest('a[href]') : null;
                     if (!link || link.target === '_blank' || link.getAttribute('href').charAt(0) === '#' && link.getAttribute('href').length < 2) { return; }
                     e.preventDefault();
                     e.stopImmediatePropagation();
-                    showLeave(link.href);
+                    // A link clicked while the prompt is open waits for its answer too.
+                    if ($('#dmcLeave').classList.contains('dm-hidden')) { showLeave(link.href); }
                 }
 
                 function warnOnClose(e) {
@@ -869,6 +870,7 @@
                 page.addEventListener('pagehide', function () {
                     document.removeEventListener('click', catchLeaving, true);
                     window.removeEventListener('beforeunload', warnOnClose);
+                    closeLeave();
                     clearTimeout(gpuTimer);
                     clearInterval(statusTimer);
                 });

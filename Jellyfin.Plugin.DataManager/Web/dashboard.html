@@ -5665,7 +5665,7 @@
                     var open = page.querySelectorAll('.dm-overlay:not(.dm-hidden)');
                     if (!open.length) { return; }
                     var top = $('#dmConfirmDialog').classList.contains('dm-hidden') ? open[open.length - 1] : $('#dmConfirmDialog');
-                    var stops = Array.prototype.filter.call(top.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'), function (el) {
+                    var stops = Array.prototype.filter.call(top.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'), function (el) {
                         return !el.disabled && el.tabIndex >= 0 && el.offsetParent !== null;
                     });
                     if (!stops.length) { return; }
