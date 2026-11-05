@@ -197,10 +197,11 @@
             #DataManagerDashboardPage .dm-tile-i { width: 44px; height: 44px; border-radius: 10px; background: var(--dm-raised); display: flex; align-items: center; justify-content: center; color: var(--dm-ink-2); flex: none; }
             #DataManagerDashboardPage .dm-tile-i .dm-ic { width: 20px; height: 20px; }
             #DataManagerDashboardPage .dm-tile.dm-needs .dm-tile-i { background: var(--dm-warning-chip); color: var(--dm-warning); }
-            #DataManagerDashboardPage .dm-tile-b { container-type: inline-size; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+            #DataManagerDashboardPage .dm-tile-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
             #DataManagerDashboardPage .dm-tile-t { font-size: 14px; font-weight: 600; }
-            #DataManagerDashboardPage .dm-tile-when { margin-left: 2px; font-size: 13px; font-weight: 400; color: var(--dm-ink-3); white-space: nowrap; }
-            @container (max-width: 190px) { #DataManagerDashboardPage .dm-tile-when span { display: none; } }
+            #DataManagerDashboardPage .dm-tile-when { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; line-height: 1.3; color: var(--dm-ink-3); }
+            #DataManagerDashboardPage .dm-tile-when:empty { display: none; }
+            #DataManagerDashboardPage .dm-tile-when .dm-ic { width: 12px; height: 12px; }
             #DataManagerDashboardPage .dm-tile-n:empty { display: none; }
             #DataManagerDashboardPage .dm-tile-n { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-tile-l { font-size: 13px; color: var(--dm-ink-2); }
@@ -720,7 +721,7 @@
                         </div>
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m9.5 10.5 5 5"/><path d="m14.5 10.5-5 5"/></svg></div>
-                            <div class="dm-tile-b"><span class="dm-tile-t">Leftovers <span id="dmLeftoverChecked" class="dm-tile-when"></span></span><span id="dmLeftoverNumber" class="dm-tile-n"></span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Leftovers</span><span id="dmLeftoverNumber" class="dm-tile-n"></span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span><span id="dmLeftoverChecked" class="dm-tile-when"></span></div>
                             <button type="button" id="dmLeftoverOpen" class="dm-button">Review</button>
                         </div>
                     </div>
@@ -4023,7 +4024,8 @@
                     if (days <= 0) { return 'today'; }
                     if (days === 1) { return 'yesterday'; }
                     if (days < 7) { return days + ' days ago'; }
-                    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+                    // From another year the year says so, or it could be mistaken for last month.
+                    return date.toLocaleDateString(undefined, date.getFullYear() !== today.getFullYear() ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
                 }
 
                 function renderLeftoverCard(progress) {
@@ -4035,8 +4037,7 @@
                     var text;
                     var checked = $('#dmLeftoverChecked');
                     var checkedAt = report.GeneratedAt && progress == null ? new Date(report.GeneratedAt) : null;
-                    // The word goes when the tile is too narrow to hold it on one line; the tooltip still says what the date is.
-                    checked.innerHTML = checkedAt ? '<span>checked </span>' + escapeHtml(checkedWhen(checkedAt)) : '';
+                    checked.innerHTML = checkedAt ? icon('clock', 12) + escapeHtml('Checked ' + checkedWhen(checkedAt)) : '';
                     checked.title = checkedAt ? 'Last checked ' + checkedAt.toLocaleString() : '';
                     number.textContent = '';
                     var purpose = 'Metadata and trickplay images from deleted videos, and sample clips';
