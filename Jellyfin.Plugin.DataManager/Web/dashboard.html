@@ -2414,6 +2414,12 @@
                     if (trackMode === 'remux') { requestRemuxEstimate(); } else { requestEstimate(); }
                 }
 
+                // Both windows share these choices and start on keeping everything, so neither inherits what the other removed.
+                function keepAllTracks() {
+                    $('#dmAudio').value = 'KeepAll';
+                    $('#dmSubtitles').value = 'KeepAll';
+                }
+
                 function resetTracks() {
                     languageChoice = null;
                     trackChoice = {};
@@ -3522,6 +3528,7 @@
                     $('#dmDialogSummary').classList.toggle('dm-hidden', !unwatched);
 
                     resetTracks();
+                    keepAllTracks();
                     placeTrackPicker('encode');
                     resetScope();
                     // The last window's figures shouldn't show until this one's arrive.
@@ -4309,6 +4316,7 @@
                     var total = files.reduce(function (sum, f) { return sum + f.SizeBytes; }, 0);
                     $('#dmRemuxChip').textContent = plural(files.length, 'file') + ' · ' + formatBytes(total);
                     resetTracks();
+                    keepAllTracks();
                     remuxEstimate = null;
                     placeTrackPicker('remux');
                     // Keeping the original is the default; replacing it is a choice.
