@@ -1,0 +1,36 @@
+[
+  {
+    "guid": "058486e8-6ec1-4313-b336-a2f160d50fac",
+    "versions": [
+      {
+        "version": "0.1.1.3",
+        "changelog": "Encoding and Clean up now roll up, and a new Customisation panel in Settings sets how each starts. Encoding stays on the page when the queue is empty, with an Empty tag. Clean up's tiles line up, and the Leftovers date has its own line. A new Library filter sits beside Sort on the same row as Search, replacing the library tabs. A language track that runs longer than the film no longer makes a correct encode look cut short.",
+        "targetAbi": "12.3.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CyanicTempest/jellyfin-plugin-storage-optimizer/dist/datamanager_0.1.1.3.zip",
+        "checksum": "23c8c16d101f6a0a0768741dc32ad642",
+        "timestamp": "2026-11-05T13:47:57Z"
+      },
+      {
+        "version": "0.1.1.2",
+        "changelog": "The list and the re-encode window now show one savings number, marked rough, from a test encode or final. Whole shows can be suggested, and rows show Waiting, Encoding and Re-encoded. Replace moved to the window's footer and asks first, and the chosen quality survives a change of codec. The preview verdict follows the softest areas. Check now only looks: leftovers are listed for review, on a schedule too, and nothing goes until you press Delete. Clean up counts each file once. Settings asks before you leave with unsaved changes. Remux starts on keeping everything and offers a suggestion. The encoding list runs in order with Clear finished. Rows and column headers are clickable. Warns when Jellyfin isn't set to decode on the GPU.",
+        "targetAbi": "12.3.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CyanicTempest/jellyfin-plugin-storage-optimizer/dist/datamanager_0.1.1.2.zip",
+        "checksum": "d00bd7947a61212ad355726dc5ea992a",
+        "timestamp": "2026-11-05T11:01:03Z"
+      },
+      {
+        "version": "0.1.1.1",
+        "changelog": "The GPU speed test now shows what limits the speed, with the encoder alone beside your film, whether the film decoded on the GPU, and speeds in times real time. New Keep frames on the GPU setting for NVIDIA cards, off until you turn it on. Check detail stops when you close the re-encode window and runs faster. New Clear queue button for the encoding list. The Clean up tiles now have titles and say what each one does.",
+        "targetAbi": "12.3.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/CyanicTempest/jellyfin-plugin-storage-optimizer/dist/datamanager_0.1.1.1.zip",
+        "checksum": "23a959947c62178b17c2bb5b290d8daf",
+        "timestamp": "2026-11-04T07:43:33Z"
+      }
+    ],
+    "name": "Storage Optimizer",
+    "description": "Scans every library and shows which folders and files use the most space. Re-encodes files to HEVC or AV1 with quality checks, remuxes out audio and subtitle tracks you don't need, converts audio, handles HDR, and finds duplicates, unwatched media and leftover files.",
+    "overview": "See where your library storage goes and re-encode to save space",
+    "owner": "CyanicTempest",
+    "category": "General"
+  }
+]
