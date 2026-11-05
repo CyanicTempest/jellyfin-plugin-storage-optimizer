@@ -26,4 +26,5 @@ changelog: >
   encoding list runs in order with Clear finished. Rows and column headers are
   clickable. Warns when Jellyfin isn't set to decode on the GPU. Encoding and
   Clean up roll up, and a new Customisation panel in Settings sets how each
-  starts. The Leftovers date has its own line.
+  starts, and Encoding stays on the page when the queue is empty. The Leftovers
+  date has its own line.

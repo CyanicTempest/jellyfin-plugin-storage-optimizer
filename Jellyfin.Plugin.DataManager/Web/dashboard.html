@@ -83,6 +83,7 @@
             #DataManagerDashboardPage .dm-dropdown:disabled { opacity: 0.5; }
             #DataManagerDashboardPage .dm-dialog .dm-dropdown { width: 100%; }
             #DataManagerDashboardPage .dm-chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--dm-raised); color: var(--dm-ink-2); font: inherit; font-size: 12px; font-weight: 500; white-space: nowrap; border: 0; }
+            #DataManagerDashboardPage .dm-chip.dm-chip-muted { color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-chip.dm-chip-acc { background: var(--dm-tint); color: var(--dm-tint-ink); }
             #DataManagerDashboardPage .dm-chip.dm-chip-ok { background: var(--dm-ok-chip); color: var(--dm-ok); }
             #DataManagerDashboardPage .dm-chip.dm-chip-warn { background: var(--dm-warning-chip); color: var(--dm-warning); }
@@ -166,6 +167,7 @@
             #DataManagerDashboardPage .dm-jobs-head .dm-h2 { flex: none; }
             #DataManagerDashboardPage .dm-jobs-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer; }
             #DataManagerDashboardPage .dm-jobs-toggle:hover { color: var(--dm-tint-ink); }
+            #DataManagerDashboardPage .dm-jobs-empty { margin: 0; padding: 14px 20px; border-top: 1px solid var(--dm-soft); font-size: 13px; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-jobs-toggle .dm-ic { flex: none; transition: transform 0.15s; }
             #DataManagerDashboardPage .dm-jobs-toggle[aria-expanded="true"] .dm-ic { transform: rotate(90deg); }
             #DataManagerDashboardPage .dm-jobs.dm-rolled :is(#dmClearQueue, #dmClearFinished) { display: none; }
@@ -204,7 +206,8 @@
             @container (max-width: 640px) {
                 #DataManagerDashboardPage .dm-tiles { grid-template-columns: minmax(0, 1fr); }
             }
-            #DataManagerDashboardPage .dm-tile { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
+            #DataManagerDashboardPage .dm-tile { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; }
+            #DataManagerDashboardPage .dm-tile > .dm-button { align-self: center; }
             #DataManagerDashboardPage .dm-tile-i { width: 44px; height: 44px; border-radius: 10px; background: var(--dm-raised); display: flex; align-items: center; justify-content: center; color: var(--dm-ink-2); flex: none; }
             #DataManagerDashboardPage .dm-tile-i .dm-ic { width: 20px; height: 20px; }
             #DataManagerDashboardPage .dm-tile.dm-needs .dm-tile-i { background: var(--dm-warning-chip); color: var(--dm-warning); }
@@ -616,12 +619,14 @@
                 #DataManagerDashboardPage .dm-cleanup-body { padding: 14px 16px 16px; }
                 #DataManagerDashboardPage .dm-jobs-toggle { min-height: 36px; }
                 #DataManagerDashboardPage .dm-jobs-now { padding: 11px 16px; }
+                #DataManagerDashboardPage .dm-jobs-empty { padding: 14px 16px; }
                 #DataManagerDashboardPage .dm-job { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 14px 16px; }
                 #DataManagerDashboardPage .dm-job-actions { justify-content: flex-start; }
                 #DataManagerDashboardPage .dm-tile { padding: 16px; }
                 #DataManagerDashboardPage .dm-lib-top { padding: 16px; }
                 #DataManagerDashboardPage .dm-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; margin: 0 -4px; padding: 0 4px; scrollbar-width: none; }
                 #DataManagerDashboardPage .dm-tools { width: 100%; }
+                #DataManagerDashboardPage .dm-jobs-head .dm-tools { width: auto; }
                 #DataManagerDashboardPage .dm-tools .dm-field { flex: 1 1 100%; }
                 #DataManagerDashboardPage .dm-tools .dm-dropdown { flex: 1; }
                 #DataManagerDashboardPage .dm-lh { grid-template-columns: 24px minmax(0, 1fr) auto; padding: 0 16px; }
@@ -705,7 +710,7 @@
                         <ul id="dmLegend" class="dm-legend"></ul>
                     </section>
 
-                    <section id="dmJobsBlock" class="dm-card dm-jobs dm-hidden" aria-label="Encoding queue">
+                    <section id="dmJobsBlock" class="dm-card dm-jobs" aria-label="Encoding queue">
                         <div class="dm-jobs-head">
                             <h2 class="dm-h2"><button type="button" id="dmJobsToggle" class="dm-jobs-toggle" aria-expanded="true" aria-controls="dmJobsBody"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>Encoding</button></h2>
                             <span id="dmJobCounts" class="dm-tools"></span>
@@ -714,6 +719,7 @@
                         </div>
                         <div id="dmJobsBody">
                             <div id="dmJobsNow" class="dm-jobs-now dm-hidden" role="status"><i></i><span></span></div>
+                            <p id="dmJobsEmpty" class="dm-jobs-empty dm-hidden">Nothing in the queue. Re-encodes you start will appear here.</p>
                             <div id="dmJobs"></div>
                         </div>
                     </section>
@@ -727,7 +733,7 @@
                     <div id="dmCleanupBody" class="dm-cleanup-body"><div class="dm-tiles">
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
-                            <div class="dm-tile-b"><span class="dm-tile-t">Smaller files</span><span id="dmSmallerNumber" class="dm-tile-n"></span><span id="dmSmallerCard" class="dm-tile-l">Re-encodes you kept, ready to accept in one go.</span></div>
+                            <div class="dm-tile-b"><span class="dm-tile-t">Smaller files</span><span id="dmSmallerNumber" class="dm-tile-n"></span><span id="dmSmallerCard" class="dm-tile-l">Re-encodes you kept, ready to accept.</span></div>
                             <button type="button" id="dmSmallerOpen" class="dm-button" disabled>Review</button>
                         </div>
                         <div class="dm-card dm-tile">
@@ -4172,7 +4178,7 @@
                 function renderSmallerCard() {
                     var pairs = smallerPairs();
                     $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0)) : 'None';
-                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 're-encode') + ' ready. ' + freesLine(pairs) : 'Re-encodes you kept, ready to accept in one go.';
+                    $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 're-encode') + ' ready. ' + freesLine(pairs) : 'Re-encodes you kept, ready to accept.';
                     $('#dmSmallerOpen').disabled = !pairs.length;
                     renderCleanupCounts();
                     if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) {
@@ -5380,7 +5386,7 @@
                         var job = queuedJob(chip.dataset.id);
                         if (job) { chip.textContent = statusChip(job); }
                     });
-                    $('#dmJobsBlock').classList.toggle('dm-hidden', !jobs.length);
+                    $('#dmJobsEmpty').classList.toggle('dm-hidden', jobs.length > 0);
                     var running = jobs.filter(function (j) { return j.State === 'Running'; }).length;
                     var waiting = jobs.filter(function (j) { return j.State === 'Queued'; }).length;
                     var paused = jobs.filter(function (j) { return j.State === 'Paused'; }).length;
@@ -5390,7 +5396,7 @@
                     var isFinished = function (j) { return j.State === 'Completed' || j.State === 'Discarded'; };
                     var finishedJobs = jobs.filter(isFinished).length;
                     $('#dmClearFinished').classList.toggle('dm-hidden', !finishedJobs);
-                    $('#dmJobCounts').innerHTML = (running ? '<span class="dm-chip dm-chip-acc">' + running + ' running</span>' : '')
+                    $('#dmJobCounts').innerHTML = (jobs.length ? '' : '<span class="dm-chip dm-chip-muted">Empty</span>') + (running ? '<span class="dm-chip dm-chip-acc">' + running + ' running</span>' : '')
                         + (paused ? '<span class="dm-chip dm-chip-warn">' + paused + ' paused</span>' : '')
                         + (waiting ? '<span class="dm-chip">' + waiting + ' waiting</span>' : '')
                         + (finishedJobs ? '<span class="dm-chip dm-chip-ok">' + finishedJobs + ' done</span>' : '')
