@@ -1,7 +1,7 @@
 ---
 name: "Storage Optimizer"
 guid: "058486e8-6ec1-4313-b336-a2f160d50fac"
-version: "0.1.1.2"
+version: "0.1.1.3"
 targetAbi: "12.3.0.0"
 framework: "net10.0"
 overview: "See where your library storage goes and re-encode to save space"
@@ -15,17 +15,9 @@ owner: "CyanicTempest"
 artifacts:
 - "Jellyfin.Plugin.DataManager.dll"
 changelog: >
-  The list and the re-encode window now show one savings number, marked rough,
-  from a test encode or final. Whole shows can be suggested, and rows show
-  Waiting, Encoding and Re-encoded. Replace moved to the window's footer and
-  asks first, and the chosen quality survives a change of codec. The preview
-  verdict follows the softest areas. Check now only looks: leftovers are listed
-  for review, on a schedule too, and nothing goes until you press Delete. Clean
-  up counts each file once. Settings asks before you leave with unsaved
-  changes. Remux starts on keeping everything and offers a suggestion. The
-  encoding list runs in order with Clear finished. Rows and column headers are
-  clickable. Warns when Jellyfin isn't set to decode on the GPU. Encoding and
-  Clean up roll up, and a new Customisation panel in Settings sets how each
-  starts, and Encoding stays on the page when the queue is empty. The Leftovers
-  date has its own line, and a Library filter sits beside Sort, on the same row
-  as Search.
+  Encoding and Clean up now roll up, and a new Customisation panel in Settings
+  sets how each starts. Encoding stays on the page when the queue is empty,
+  with an Empty tag. Clean up's tiles line up, and the Leftovers date has its
+  own line. A new Library filter sits beside Sort on the same row as Search,
+  replacing the library tabs. A language track that runs longer than the film
+  no longer makes a correct encode look cut short.
