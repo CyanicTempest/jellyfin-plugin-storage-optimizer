@@ -225,11 +225,9 @@
             #DataManagerDashboardPage .dm-lib-top { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px 16px; }
             #DataManagerDashboardPage .dm-sh { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
             #DataManagerDashboardPage .dm-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
-            #DataManagerDashboardPage .dm-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-            #DataManagerDashboardPage .dm-tab { flex: none; white-space: nowrap; height: 32px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--dm-ink-2); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
-            #DataManagerDashboardPage .dm-tab:hover { color: var(--dm-ink); }
-            #DataManagerDashboardPage .dm-tab span { color: var(--dm-ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
-            #DataManagerDashboardPage .dm-tab[aria-pressed="true"] { background: var(--dm-raised); color: var(--dm-ink); }
+            #DataManagerDashboardPage .dm-list-search { flex: 1 1 220px; max-width: 280px; }
+            #DataManagerDashboardPage .dm-list-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: 1 1 auto; min-width: 0; }
+            #DataManagerDashboardPage #dmLibrary { max-width: 200px; }
             #DataManagerDashboardPage .dm-lh,
             #DataManagerDashboardPage .dm-row { display: grid; grid-template-columns: 22px 44px minmax(0, 1fr) 150px 160px; gap: 0 16px; align-items: center; padding: 0 20px; }
             #DataManagerDashboardPage .dm-lh { height: 38px; border-top: 1px solid var(--dm-line); border-bottom: 1px solid var(--dm-line); background: var(--dm-deep); font-size: 12px; font-weight: 500; color: var(--dm-ink-3); }
@@ -624,10 +622,12 @@
                 #DataManagerDashboardPage .dm-job-actions { justify-content: flex-start; }
                 #DataManagerDashboardPage .dm-tile { padding: 16px; }
                 #DataManagerDashboardPage .dm-lib-top { padding: 16px; }
-                #DataManagerDashboardPage .dm-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; margin: 0 -4px; padding: 0 4px; scrollbar-width: none; }
                 #DataManagerDashboardPage .dm-tools { width: 100%; }
                 #DataManagerDashboardPage .dm-jobs-head .dm-tools { width: auto; }
                 #DataManagerDashboardPage .dm-tools .dm-field { flex: 1 1 100%; }
+                #DataManagerDashboardPage .dm-list-search { max-width: none; }
+                #DataManagerDashboardPage .dm-list-pick { flex: 1 1 100%; }
+                #DataManagerDashboardPage .dm-list-pick .dm-dropdown { flex: 1 1 0; min-width: 0; }
                 #DataManagerDashboardPage .dm-tools .dm-dropdown { flex: 1; }
                 #DataManagerDashboardPage .dm-lh { grid-template-columns: 24px minmax(0, 1fr) auto; padding: 0 16px; }
                 #DataManagerDashboardPage .dm-lh .dm-skip { display: none; }
@@ -753,21 +753,8 @@
                     <section class="dm-card dm-lib" aria-labelledby="dmMediaHeading">
                         <h2 id="dmMediaHeading" class="dm-visually-hidden">Media</h2>
                         <div class="dm-lib-top">
-                            <div class="dm-sh">
-                                <div id="dmTabs" class="dm-tabs" role="group" aria-label="Library"></div>
-                                <select id="dmSort" class="dm-dropdown" aria-label="Sort by">
-                                    <option value="saving">Sort: Could free</option>
-                                    <option value="size">Sort: Size</option>
-                                    <option value="bitrate">Sort: Bitrate</option>
-                                    <option value="name">Sort: Name</option>
-                                    <option value="watched">Sort: Last watched</option>
-                                    <optgroup label="Group">
-                                        <option value="type">Group by codec</option>
-                                    </optgroup>
-                                </select>
-                            </div>
                             <div class="dm-tools">
-                                <label class="dm-field" style="width: 280px; max-width: 100%"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="dmFilter" placeholder="Search" aria-label="Search by name" /></label>
+                                <label class="dm-field dm-list-search"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="dmFilter" placeholder="Search" aria-label="Search by name" /></label>
                                 <div id="dmShow" class="dm-segmented" role="radiogroup" aria-label="Show">
                                     <label><input type="radio" name="dmShow" value="all" checked />All</label>
                                     <label><input type="radio" name="dmShow" value="suggested" />Suggested</label>
@@ -779,6 +766,19 @@
                                     <option value="730">for 2 years</option>
                                     <option value="1095">for 3 years</option>
                                 </select>
+                                <div class="dm-list-pick">
+                                <select id="dmLibrary" class="dm-dropdown" aria-label="Library"></select>
+                                <select id="dmSort" class="dm-dropdown" aria-label="Sort by">
+                                    <option value="saving">Sort: Could free</option>
+                                    <option value="size">Sort: Size</option>
+                                    <option value="bitrate">Sort: Bitrate</option>
+                                    <option value="name">Sort: Name</option>
+                                    <option value="watched">Sort: Last watched</option>
+                                    <optgroup label="Group">
+                                        <option value="type">Group by codec</option>
+                                    </optgroup>
+                                </select>
+                                </div>
                             </div>
                         </div>
                         <p id="dmSavingsLine" class="dm-notice dm-hidden"></p>
@@ -1883,14 +1883,15 @@
                     return mainIdsCache;
                 }
 
-                function renderTabs() {
-                    var tabs = $('#dmTabs');
+                // Every library the scan found, with how many files each holds.
+                function renderLibraryFilter() {
                     var libraries = summary.Libraries || [];
                     if (libraryFilter && !libraries.some(function (l) { return l.Name === libraryFilter; })) { libraryFilter = ''; }
-                    tabs.classList.toggle('dm-hidden', libraries.length < 2);
-                    tabs.innerHTML = [{ Name: '', Label: 'All', FileCount: summary.FileCount }].concat(libraries).map(function (l) {
-                        return '<button type="button" class="dm-tab" data-lib="' + escapeHtml(l.Name) + '" aria-pressed="' + (l.Name === libraryFilter) + '">' + escapeHtml(l.Label || l.Name) + ' <span>' + l.FileCount + '</span></button>';
+                    var picker = $('#dmLibrary');
+                    picker.innerHTML = [{ Name: '', Label: 'All libraries', FileCount: summary.FileCount }].concat(libraries).map(function (l) {
+                        return '<option value="' + escapeHtml(l.Name) + '">' + escapeHtml((l.Label || l.Name) + ' (' + l.FileCount + ')') + '</option>';
                     }).join('');
+                    picker.value = libraryFilter;
                 }
 
                 // How the list is ordered: by what each row shows, so a series sorts by its totals.
@@ -2140,7 +2141,7 @@
                     Object.keys(selected).forEach(function (id) { if (!filesById[id]) { delete selected[id]; } });
 
                     updateShowControls();
-                    renderTabs();
+                    renderLibraryFilter();
                     renderStorage();
                     renderMedia(true);
                     renderJobs(lastJobs);
@@ -5671,13 +5672,6 @@
                         ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('DataManager/Encode/Jobs/' + cancel.dataset.id) }).then(loadJobs, loadJobs);
                         return;
                     }
-                    var tab = e.target.closest('.dm-tab');
-                    if (tab) {
-                        libraryFilter = tab.dataset.lib;
-                        renderTabs();
-                        renderMedia();
-                        return;
-                    }
                     var toggle = e.target.closest('.dm-versions, .dm-folder');
                     if (toggle) {
                         expanded[toggle.dataset.group] = toggle.getAttribute('aria-expanded') !== 'true';
@@ -5819,6 +5813,10 @@
                         $('#dmSort').value = head.dataset.sort;
                         $('#dmSort').dispatchEvent(new Event('change'));
                     });
+                });
+                $('#dmLibrary').addEventListener('change', function () {
+                    libraryFilter = this.value;
+                    renderMedia();
                 });
                 $('#dmSort').addEventListener('change', function () {
                     try { localStorage.setItem('dataManager.sort', $('#dmSort').value); } catch (e) { /* storage unavailable */ }

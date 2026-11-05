@@ -27,4 +27,5 @@ changelog: >
   clickable. Warns when Jellyfin isn't set to decode on the GPU. Encoding and
   Clean up roll up, and a new Customisation panel in Settings sets how each
   starts, and Encoding stays on the page when the queue is empty. The Leftovers
-  date has its own line.
+  date has its own line, and a Library filter sits beside Sort, on the same row
+  as Search.
