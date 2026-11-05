@@ -1690,7 +1690,7 @@
                 // A saving is rough until test encodes have measured it, and says which it is.
                 function savingCell(saving, size, suggested, note, tested) {
                     if (!(saving > 0)) { return '<div class="dm-sv dm-none">' + escapeHtml(note || 'None') + '</div>'; }
-                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.toLowerCase()) + '"' : ' title="Not suggested: saves under 300 MB, or under a quarter of its size"') + '>' + (tested ? icon('check', 13) : 'about ') + escapeHtml(formatBytes(saving))
+                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.charAt(0).toLowerCase() + suggested.slice(1)) + '"' : ' title="Not suggested: it saves under 300 MB or a quarter of its size, or already has another version"') + '>' + (tested ? icon('check', 13) : 'about ') + escapeHtml(formatBytes(saving))
                         + '<small>' + (note ? escapeHtml(note) : Math.round(saving / size * 100) + '%' + (tested ? ', from a test encode' : ', rough')) + '</small></div>';
                 }
 
@@ -2478,7 +2478,10 @@
                     if (t.IsHearingImpaired) { flags.push('SDH'); }
                     // A title that only repeats the format, as muxers often write, adds nothing.
                     var title = t.Title || '';
-                    var repeats = title && (/handler/i.test(title) || title.toLowerCase().indexOf((t.Codec || '').toLowerCase()) >= 0 || title.toLowerCase().indexOf(codec.toLowerCase()) >= 0);
+                    var leftOver = title.toLowerCase().split(codec.toLowerCase()).join(' ');
+                    if (t.Codec) { leftOver = leftOver.split(t.Codec.toLowerCase()).join(' '); }
+                    leftOver = leftOver.replace(/\b\d(\.\d)?\b|stereo|mono|surround|@|\d+\s*k(b(ps|its)?)?(\/s)?|\W/g, '');
+                    var repeats = !!title && (!leftOver || /handler$/i.test(title));
                     return escapeHtml(text) + (title && !repeats ? ' <span class="dm-track-title">' + escapeHtml(title) + '</span>' : '')
                         + flags.map(function (f) { return ' <span class="dm-tag dm-tag-plain">' + f + '</span>'; }).join('');
                 }
@@ -2937,7 +2940,8 @@
                 function movedLine(estimate) {
                     if (!estimate.SizeMeasured || !pluginConfig || scopeId || overrideCount()) { return ''; }
                     var body = encodeBody();
-                    if (body.Codec !== pluginConfig.DefaultCodec || body.Quality !== pluginConfig.DefaultQuality || body.Effort !== pluginConfig.DefaultEffort) { return ''; }
+                    if (body.Codec !== pluginConfig.DefaultCodec || body.Quality !== pluginConfig.DefaultQuality || body.Effort !== pluginConfig.DefaultEffort
+                        || body.Resolution !== 'Original' || body.Audio !== 'KeepAll' || body.Subtitles !== 'KeepAll') { return ''; }
                     var files = selectedFiles();
                     if (!files.some(function (f) { return !f.SavingsTested; })) { return ''; }
                     testedThisTime = true;
@@ -4276,7 +4280,10 @@
                     var box = $('#dmRemuxSuggest');
                     var keepingAll = $('#dmAudio').value === 'KeepAll' && $('#dmSubtitles').value === 'KeepAll';
                     var suggested = estimate && estimate.SuggestedLanguages ? estimate.SuggestedLanguages : [];
-                    var extra = (estimate && estimate.Tracks ? estimate.Tracks : []).filter(function (t) { return suggested.indexOf(t.Language) < 0; });
+                    // Tracks with no language are always kept, and so is some audio if none is in a suggested language.
+                    var tracks = estimate && estimate.Tracks ? estimate.Tracks : [];
+                    var audioKept = tracks.some(function (t) { return t.Kind === 'Audio' && suggested.indexOf(t.Language) >= 0; });
+                    var extra = tracks.filter(function (t) { return t.Language && suggested.indexOf(t.Language) < 0 && (t.Kind !== 'Audio' || audioKept); });
                     var show = keepingAll && suggested.length > 0 && extra.length > 0;
                     box.classList.toggle('dm-hidden', !show);
                     if (!show) { return; }

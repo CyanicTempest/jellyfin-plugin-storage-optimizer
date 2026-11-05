@@ -2142,7 +2142,7 @@ public sealed class EncodeService : IDisposable
                 measured &= own;
 
                 // Nothing with this encoder has been tested yet, so this is the same rough figure the list shows.
-                if (!own && scale == 1.0)
+                if (!own && scale == 1.0 && codec == TargetCodec.Hevc)
                 {
                     scale = SavingsEstimator.RoughScale(p.Info.VideoCodec);
                 }

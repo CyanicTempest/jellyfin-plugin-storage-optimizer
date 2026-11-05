@@ -41,7 +41,7 @@ public static class SuggestionRules
         }
 
         var shows = all
-            .Where(f => f.OtherVersionIds.Count == 0 && f.EstimatedSavingsBytes > 0 && (f.SeriesId ?? f.SeriesName) is not null)
+            .Where(f => f.OtherVersionIds.Count == 0 && (f.SeriesId ?? f.SeriesName) is not null)
             .GroupBy(f => f.SeriesId ?? f.SeriesName!, StringComparer.Ordinal);
         foreach (var show in shows)
         {
@@ -50,7 +50,8 @@ public static class SuggestionRules
                 continue;
             }
 
-            foreach (var episode in show)
+            // The show earns the suggestion, but an episode that would barely shrink isn't worth re-encoding.
+            foreach (var episode in show.Where(e => e.EstimatedSavingsBytes >= e.SizeBytes * MinimumSavingsShare))
             {
                 episode.IsRecommended = true;
                 episode.SuggestedReason = "Saves over 300 MB across the show";

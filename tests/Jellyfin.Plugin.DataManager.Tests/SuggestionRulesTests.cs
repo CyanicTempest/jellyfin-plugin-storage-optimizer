@@ -52,6 +52,26 @@ public sealed class SuggestionRulesTests
     }
 
     [Fact]
+    public void An_episode_that_barely_shrinks_is_left_out_of_its_show()
+    {
+        var thin = File(1000, 20, "show");
+        var episodes = Enumerable.Range(0, 19).Select(_ => File(100, 50, "show")).Append(thin).ToList();
+        SuggestionRules.Apply(episodes);
+
+        Assert.True(episodes[0].IsRecommended);
+        Assert.False(thin.IsRecommended);
+    }
+
+    [Fact]
+    public void Episodes_that_save_nothing_still_count_towards_the_show()
+    {
+        var episodes = Enumerable.Range(0, 4).Select(_ => File(100, 90, "show")).Concat(Enumerable.Range(0, 90).Select(_ => File(100, 0, "show"))).ToList();
+        SuggestionRules.Apply(episodes);
+
+        Assert.All(episodes, e => Assert.False(e.IsRecommended));
+    }
+
+    [Fact]
     public void A_title_with_another_version_is_left_out()
     {
         var film = File(1000, 400, null, ["other"]);
