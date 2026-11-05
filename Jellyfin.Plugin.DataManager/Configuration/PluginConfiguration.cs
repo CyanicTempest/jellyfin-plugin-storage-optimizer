@@ -32,6 +32,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public EncodeEffort DefaultEffort { get; set; } = EncodeEffort.Standard;
 
     /// <summary>
+    /// Gets or sets how the dashboard's Encoding section starts.
+    /// </summary>
+    public SectionStart EncodingSectionStart { get; set; } = SectionStart.Remember;
+
+    /// <summary>
+    /// Gets or sets how the dashboard's Clean up section starts.
+    /// </summary>
+    public SectionStart CleanUpSectionStart { get; set; } = SectionStart.Remember;
+
+    /// <summary>
     /// Gets or sets a value indicating whether re-encoded files get Jellyfin's details and artwork written into them.
     /// Off unless it's switched on in the settings.
     /// </summary>

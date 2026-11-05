@@ -169,6 +169,9 @@
             #DataManagerDashboardPage .dm-jobs-toggle .dm-ic { flex: none; transition: transform 0.15s; }
             #DataManagerDashboardPage .dm-jobs-toggle[aria-expanded="true"] .dm-ic { transform: rotate(90deg); }
             #DataManagerDashboardPage .dm-jobs.dm-rolled :is(#dmClearQueue, #dmClearFinished) { display: none; }
+            #DataManagerDashboardPage .dm-cleanup-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 16px 20px; }
+            #DataManagerDashboardPage .dm-cleanup-head .dm-h2 { flex: none; }
+            #DataManagerDashboardPage .dm-cleanup:not(.dm-rolled) #dmCleanupCounts { display: none; }
             #DataManagerDashboardPage .dm-job { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 176px; gap: 8px 24px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--dm-soft); }
             #DataManagerDashboardPage .dm-job-season { padding-left: 14px; }
             #DataManagerDashboardPage .dm-job-toggle { display: inline-flex; align-items: flex-start; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -192,7 +195,15 @@
             #DataManagerDashboardPage .dm-job-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
             #DataManagerDashboardPage .dm-job-result { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--dm-ink-2); font-variant-numeric: tabular-nums; }
             /* ---------- Clean up ---------- */
-            #DataManagerDashboardPage .dm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; }
+            #DataManagerDashboardPage .dm-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+            #DataManagerDashboardPage .dm-cleanup-body { container-type: inline-size; padding: 16px 20px 20px; border-top: 1px solid var(--dm-soft); }
+            @container (max-width: 960px) {
+                #DataManagerDashboardPage .dm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                #DataManagerDashboardPage .dm-tile:last-child { grid-column: 1 / -1; }
+            }
+            @container (max-width: 640px) {
+                #DataManagerDashboardPage .dm-tiles { grid-template-columns: minmax(0, 1fr); }
+            }
             #DataManagerDashboardPage .dm-tile { display: flex; align-items: center; gap: 16px; padding: 18px 20px; }
             #DataManagerDashboardPage .dm-tile-i { width: 44px; height: 44px; border-radius: 10px; background: var(--dm-raised); display: flex; align-items: center; justify-content: center; color: var(--dm-ink-2); flex: none; }
             #DataManagerDashboardPage .dm-tile-i .dm-ic { width: 20px; height: 20px; }
@@ -601,6 +612,8 @@
                 #DataManagerDashboardPage .dm-bar-gap { display: none; }
                 #DataManagerDashboardPage .dm-legend { gap: 8px 18px; }
                 #DataManagerDashboardPage .dm-jobs-head { flex-wrap: wrap; padding: 14px 16px; }
+                #DataManagerDashboardPage .dm-cleanup-head { padding: 14px 16px; }
+                #DataManagerDashboardPage .dm-cleanup-body { padding: 14px 16px 16px; }
                 #DataManagerDashboardPage .dm-jobs-toggle { min-height: 36px; }
                 #DataManagerDashboardPage .dm-jobs-now { padding: 11px 16px; }
                 #DataManagerDashboardPage .dm-job { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 14px 16px; }
@@ -706,9 +719,12 @@
                     </section>
                 </div>
 
-                <section class="dm-stack" style="gap: 14px" aria-labelledby="dmCleanupHeading">
-                    <h2 id="dmCleanupHeading" class="dm-h2">Clean up</h2>
-                    <div class="dm-tiles">
+                <section id="dmCleanupBlock" class="dm-card dm-cleanup" aria-labelledby="dmCleanupHeading">
+                    <div class="dm-cleanup-head">
+                        <h2 id="dmCleanupHeading" class="dm-h2"><button type="button" id="dmCleanupToggle" class="dm-jobs-toggle" aria-expanded="true" aria-controls="dmCleanupBody"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>Clean up</button></h2>
+                        <span id="dmCleanupCounts" class="dm-tools"></span>
+                    </div>
+                    <div id="dmCleanupBody" class="dm-cleanup-body"><div class="dm-tiles">
                         <div class="dm-card dm-tile">
                             <div class="dm-tile-i"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
                             <div class="dm-tile-b"><span class="dm-tile-t">Smaller files</span><span id="dmSmallerNumber" class="dm-tile-n"></span><span id="dmSmallerCard" class="dm-tile-l">Re-encodes you kept, ready to accept in one go.</span></div>
@@ -724,7 +740,7 @@
                             <div class="dm-tile-b"><span class="dm-tile-t">Leftovers</span><span id="dmLeftoverNumber" class="dm-tile-n"></span><span id="dmLeftoverCard" class="dm-tile-l">Loading…</span><span id="dmLeftoverChecked" class="dm-tile-when"></span></div>
                             <button type="button" id="dmLeftoverOpen" class="dm-button">Review</button>
                         </div>
-                    </div>
+                    </div></div>
                 </section>
 
                 <div id="dmContentMedia" class="dm-hidden">
@@ -3849,6 +3865,11 @@
 
                 // The tile on the page: one number and one line, and the window holds the rest.
                 function renderDupCard() {
+                    fillDupCard();
+                    renderCleanupCounts();
+                }
+
+                function fillDupCard() {
                     var d = duplicates;
                     var label = $('#dmDupCard');
                     var number = $('#dmDupNumber');
@@ -4059,6 +4080,7 @@
                     }
                     label.textContent = text;
                     tile.classList.toggle('dm-needs', !!(items.length || report.HeldBack) && progress == null);
+                    renderCleanupCounts();
                 }
 
                 function openLeftoverDialog() {
@@ -4137,11 +4159,22 @@
                     return 'Frees ' + formatBytes(originals) + ' now (' + formatBytes(smaller) + ' smaller overall).';
                 }
 
+                // While Clean up is rolled up, its heading still says what's waiting.
+                function renderCleanupCounts() {
+                    var parts = [['Smaller files', $('#dmSmallerNumber')], ['Duplicates', $('#dmDupNumber')], ['Leftovers', $('#dmLeftoverNumber')]];
+                    $('#dmCleanupCounts').innerHTML = parts.filter(function (p) {
+                        return /^[\d.]+\s?\S*B$/.test(p[1].textContent);
+                    }).map(function (p) {
+                        return '<span class="dm-chip dm-chip-warn">' + escapeHtml(p[0] + ' ' + p[1].textContent) + '</span>';
+                    }).join('');
+                }
+
                 function renderSmallerCard() {
                     var pairs = smallerPairs();
                     $('#dmSmallerNumber').textContent = pairs.length ? formatBytes(pairs.reduce(function (sum, p) { return sum + p.original.SizeBytes; }, 0)) : 'None';
                     $('#dmSmallerCard').textContent = pairs.length ? plural(pairs.length, 're-encode') + ' ready. ' + freesLine(pairs) : 'Re-encodes you kept, ready to accept in one go.';
                     $('#dmSmallerOpen').disabled = !pairs.length;
+                    renderCleanupCounts();
                     if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) {
                         if (pairs.length) { renderSmallerList(); } else { closeSmaller(); }
                     }
@@ -5726,8 +5759,29 @@
                     else if (!$('#dmDupDialog').classList.contains('dm-hidden')) { closeDupDialog(); } else if (!$('#dmLeftoverDialog').classList.contains('dm-hidden')) { closeLeftoverDialog(); }
                 });
 
-                // The queue can be rolled up. A phone always starts rolled up; a wider screen remembers the last choice.
+                // Encoding and Clean up can be rolled up. Settings can fix how each starts. Otherwise a phone starts them rolled up
+                // and doesn't save, and a wider screen goes back to how they were last left in this browser.
                 var jobsPhone = window.matchMedia('(max-width: 760px)').matches;
+                function storedOpen(key) {
+                    try { return localStorage.getItem(key) !== 'false'; } catch (e) { return true; }
+                }
+
+                function storeOpen(key, open) {
+                    try { localStorage.setItem(key, open); } catch (e) { /* storage unavailable */ }
+                }
+
+                function startOpen(start, remembered) {
+                    return start === 'Open' ? true : start === 'RolledUp' ? false : remembered;
+                }
+
+                function setCleanupOpen(open) {
+                    var toggle = $('#dmCleanupToggle');
+                    toggle.setAttribute('aria-expanded', open);
+                    toggle.title = (open ? 'Hide' : 'Show') + ' Clean up';
+                    $('#dmCleanupBody').classList.toggle('dm-hidden', !open);
+                    $('#dmCleanupBlock').classList.toggle('dm-rolled', !open);
+                }
+
                 function setJobsOpen(open) {
                     var toggle = $('#dmJobsToggle');
                     toggle.setAttribute('aria-expanded', open);
@@ -5735,14 +5789,21 @@
                     $('#dmJobsBody').classList.toggle('dm-hidden', !open);
                     $('#dmJobsBlock').classList.toggle('dm-rolled', !open);
                 }
-                var jobsStoredOpen = true;
-                try { jobsStoredOpen = localStorage.getItem('dataManager.queueOpen') !== 'false'; } catch (e) { /* storage unavailable */ }
-                setJobsOpen(!jobsPhone && jobsStoredOpen);
+                function applySectionStarts(config) {
+                    setJobsOpen(startOpen(config && config.EncodingSectionStart, !jobsPhone && storedOpen('dataManager.queueOpen')));
+                    setCleanupOpen(startOpen(config && config.CleanUpSectionStart, !jobsPhone && storedOpen('dataManager.cleanupOpen')));
+                }
+
+                applySectionStarts(null);
                 $('#dmJobsToggle').addEventListener('click', function () {
                     var open = this.getAttribute('aria-expanded') !== 'true';
                     setJobsOpen(open);
-                    if (jobsPhone) { return; }
-                    try { localStorage.setItem('dataManager.queueOpen', open); } catch (e) { /* storage unavailable */ }
+                    if (!jobsPhone) { storeOpen('dataManager.queueOpen', open); }
+                });
+                $('#dmCleanupToggle').addEventListener('click', function () {
+                    var open = this.getAttribute('aria-expanded') !== 'true';
+                    setCleanupOpen(open);
+                    if (!jobsPhone) { storeOpen('dataManager.cleanupOpen', open); }
                 });
 
                 try { $('#dmSort').value = localStorage.getItem('dataManager.sort') || 'saving'; } catch (e) { /* storage unavailable */ }
@@ -5944,6 +6005,7 @@
                 });
 
                 page.addEventListener('pageshow', function () {
+                    ApiClient.getPluginConfiguration(pluginId).then(applySectionStarts, function () { /* the remembered state stands */ });
                     applyTheme();
                     load();
                     pollScan(false);

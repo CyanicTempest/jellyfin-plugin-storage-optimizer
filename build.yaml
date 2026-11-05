@@ -24,4 +24,6 @@ changelog: >
   up counts each file once. Settings asks before you leave with unsaved
   changes. Remux starts on keeping everything and offers a suggestion. The
   encoding list runs in order with Clear finished. Rows and column headers are
-  clickable. Warns when Jellyfin isn't set to decode on the GPU.
+  clickable. Warns when Jellyfin isn't set to decode on the GPU. Encoding and
+  Clean up roll up, and a new Customisation panel in Settings sets how each
+  starts. The Leftovers date has its own line.
