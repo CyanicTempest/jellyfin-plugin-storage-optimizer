@@ -85,6 +85,9 @@ public sealed record AttachmentInfo(int Index, string? MimeType, string? FileNam
 /// <param name="SourceAttachmentCount">How many attachments (not counting cover art) the source has, to tell whether any are left out.</param>
 public sealed record EncodeExtras(IReadOnlyList<AudioConversion> Audio, bool ToneMap, string? DolbyVisionStrip, IReadOnlyList<int>? Attachments, bool StripCoverArt, int SourceAttachmentCount = 0)
 {
+    /// <summary>Gets the changes to the kept tracks' titles, languages and flags. Converted tracks with none listed are retitled as before.</summary>
+    public IReadOnlyList<TrackRewrite> Rewrites { get; init; } = [];
+
     /// <summary>Gets extras that change nothing.</summary>
     public static EncodeExtras None { get; } = new([], false, null, null, false);
 }

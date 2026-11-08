@@ -412,6 +412,11 @@
             #DataManagerDashboardPage .dm-track-title { color: var(--dm-ink-3); margin-left: 6px; }
             #DataManagerDashboardPage .dm-track-title::before { content: "· "; }
             #DataManagerDashboardPage .dm-track .dm-tag { margin-left: 6px; }
+            #DataManagerDashboardPage .dm-track .dm-text-button.dm-level-note { color: var(--dm-ink-3); }
+            #DataManagerDashboardPage .dm-level-note.dm-only-main { color: var(--dm-warning); }
+            #DataManagerDashboardPage .dm-track-notes { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: -6px; }
+            #DataManagerDashboardPage .dm-track-notes .dm-level-note { margin-left: 0; }
+            #DataManagerDashboardPage .dm-track-files { margin: 0; padding: 2px 4px 8px 64px; list-style: none; font-size: 12px; line-height: 1.6; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-languages-title { margin: 0; display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
             #DataManagerDashboardPage .dm-level-head { font-weight: 400; font-size: 12px; color: var(--dm-ink-3); }
             /* Preview */
@@ -536,6 +541,8 @@
             #DataManagerDashboardPage .dm-encode-settings { min-width: 0; }
             #DataManagerDashboardPage .dm-has-rail .dm-level { grid-template-columns: 16px minmax(0, 1fr) 36px 66px; gap: 10px; }
             #DataManagerDashboardPage .dm-has-rail .dm-level > span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #DataManagerDashboardPage .dm-has-rail :is(.dm-lang, .dm-track) { grid-template-columns: 16px minmax(0, 1fr) auto; }
+            #DataManagerDashboardPage .dm-has-rail .dm-lang > span:nth-child(2) { white-space: normal; overflow: visible; }
             #DataManagerDashboardPage .dm-rail { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--dm-line); background: var(--dm-deep); }
             #DataManagerDashboardPage .dm-rail-title { display: none; align-items: center; justify-content: space-between; gap: 12px; }
             #DataManagerDashboardPage .dm-rail-title h4 { margin: 0; font-size: 15px; font-weight: 600; color: inherit; }
@@ -2511,6 +2518,7 @@
                     languageChoice = null;
                     trackChoice = {};
                     openLanguages = {};
+                    openTrackFiles = {};
                     lastTrackEstimate = null;
                 }
 
@@ -2523,6 +2531,21 @@
                 // Single tracks, by key, kept or removed against their language's tick; and languages opened or closed.
                 var trackChoice = {};
                 var openLanguages = {};
+                // Tracks whose list of files is open, by key.
+                var openTrackFiles = {};
+
+                // A track as plain words, such as "Japanese AAC Stereo", for notes that aren't markup.
+                function trackText(t, languages) {
+                    var box = document.createElement('div');
+                    box.innerHTML = trackLabel(t);
+                    var language = (languages || []).filter(function (l) { return l.Code === t.Language; })[0];
+                    return (language && language.Code ? language.Name + ' ' : '') + box.textContent.replace(/\s+/g, ' ').trim();
+                }
+
+                function nameList(names, most) {
+                    var shown = names.slice(0, most);
+                    return shown.join(', ') + (names.length > most ? ' and ' + (names.length - most) + ' more' : '');
+                }
 
                 function keptLanguages() {
                     if (!languageChoice) { return []; }
@@ -2623,11 +2646,24 @@
                                 + '<span class="dm-level-value dm-guess">' + formatBytes(size) + '</span></div>';
                             var body = !open ? '' : r.tracks.map(function (t, i) {
                                 var id = 'dmTrack-' + escapeHtml(l.Code || 'none') + '-' + i;
+                                var names = t.FileNames || [];
+                                var only = t.Kind === 'Audio' ? (t.OnlyMainAudioIn || []) : [];
+                                var filesOpen = !!openTrackFiles[t.Key];
+                                // Which files have it, behind a button, so a season muxed unevenly can be checked file by file.
+                                var inFiles = fileCount > 1 && t.Files < fileCount
+                                    ? '<button type="button" class="dm-text-button dm-level-note dm-track-files-toggle" data-focus-key="files:' + escapeHtml(t.Key) + '" data-key="' + escapeHtml(t.Key) + '" aria-expanded="' + filesOpen + '">in ' + t.Files + ' of ' + fileCount + ' files</button>'
+                                    : '';
+                                // Unticking a file's only main audio doesn't remove it: that file keeps it anyway.
+                                var onlyNote = only.length && fileCount > 1
+                                    ? '<span class="dm-level-note dm-only-main" title="' + escapeHtml(nameList(only, 10)) + '">Only main audio in ' + plural(only.length, 'file') + '</span>'
+                                    : only.length && !trackKept(t) ? '<span class="dm-level-note dm-only-main">Kept anyway: it\'s the only main audio</span>' : '';
                                 return '<div class="dm-level dm-track">'
                                     + '<input type="checkbox" class="dm-track-box" id="' + id + '" data-focus-key="track:' + escapeHtml(t.Key) + '" data-key="' + escapeHtml(t.Key) + '" data-code="' + escapeHtml(l.Code) + '"' + (trackKept(t) ? ' checked' : '') + ' />'
-                                    + '<label for="' + id + '">' + trackLabel(t)
-                                    + (fileCount > 1 && t.Files < fileCount ? '<span class="dm-level-note">in ' + t.Files + ' of ' + fileCount + ' files</span>' : '') + '</label>'
-                                    + '<span class="dm-level-value dm-guess">' + formatBytes(t.Bytes) + '</span></div>';
+                                    + '<label for="' + id + '">' + trackLabel(t) + '</label>'
+                                    + '<span class="dm-level-value dm-guess">' + formatBytes(t.Bytes) + '</span>'
+                                    + (inFiles || onlyNote ? '<div class="dm-track-notes">' + inFiles + onlyNote + '</div>' : '')
+                                    + '</div>'
+                                    + (filesOpen ? '<ul class="dm-track-files">' + names.map(function (n) { return '<li>' + escapeHtml(n) + (only.indexOf(n) >= 0 ? ' <span class="dm-only-main dm-level-note">only main audio</span>' : '') + '</li>'; }).join('') + '</ul>' : '');
                             }).join('');
                             return head + body;
                         }).join('');
@@ -2648,6 +2684,12 @@
                                 if (box.checked === languageKept(box.dataset.code)) { delete trackChoice[box.dataset.key]; } else { trackChoice[box.dataset.key] = box.checked; }
                                 renderTracks();
                                 tracksChanged();
+                            });
+                        });
+                        page.querySelectorAll('.dm-track-files-toggle').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                openTrackFiles[button.dataset.key] = button.getAttribute('aria-expanded') !== 'true';
+                                renderTracks();
                             });
                         });
                         page.querySelectorAll('.dm-lang-toggle').forEach(function (button) {
@@ -2677,7 +2719,8 @@
                                 ? 'Removes ' + removed.join(' and ') + ', about ' + formatBytes(current.RemovedTrackBytes) + '.'
                                 : 'Nothing to remove with these choices.');
                             if (current.AudioFallbackFiles) {
-                                note.push(plural(current.AudioFallbackFiles, 'file') + ' ' + (current.AudioFallbackFiles === 1 ? 'has' : 'have') + ' no audio in these languages, so ' + (current.AudioFallbackFiles === 1 ? 'it keeps its' : 'they keep their') + ' main audio track.');
+                                note.push(plural(current.AudioFallbackFiles, 'file') + ' ' + (current.AudioFallbackFiles === 1 ? 'has' : 'have') + ' no main audio in these choices, so ' + (current.AudioFallbackFiles === 1 ? 'it keeps its' : 'they keep their') + ' main audio track'
+                                    + (current.AudioFallbacks && current.AudioFallbacks.length ? ': ' + fallbackText(current) : '') + '.');
                             }
                         }
                         note.push('A file always keeps at least one audio track. Subtitle files next to the video aren\'t touched.');
@@ -2685,6 +2728,21 @@
                     $('#dmTracksNote').textContent = note.join(' ');
                     $('#dmTracksNote').classList.toggle('dm-hidden', !note.length);
                     renderExtras();
+                }
+
+                // Such as "Example Show S01E01 and S01E02 keep Japanese AAC Stereo", grouped by the track kept.
+                function fallbackText(estimate) {
+                    var byTrack = {};
+                    var order = [];
+                    estimate.AudioFallbacks.forEach(function (f) {
+                        if (!byTrack[f.TrackKey]) { byTrack[f.TrackKey] = []; order.push(f.TrackKey); }
+                        byTrack[f.TrackKey].push(f.Name);
+                    });
+                    return order.map(function (key) {
+                        var track = (estimate.Tracks || []).filter(function (t) { return t.Key === key; })[0];
+                        var names = byTrack[key];
+                        return nameList(names, 4) + (names.length === 1 ? ' keeps ' : ' keep ') + (track ? trackText(track, estimate.Languages) : 'its main audio');
+                    }).join('; ');
                 }
 
                 // What converting audio saves, what happens to HDR, and what each choice costs.

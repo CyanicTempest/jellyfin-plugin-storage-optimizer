@@ -92,6 +92,63 @@ public sealed class EncodingTests
     }
 
     [Fact]
+    public void TrackSelection_treats_a_file_left_with_only_a_commentary_as_having_no_audio()
+    {
+        var tracks = new List<TrackInfo>
+        {
+            new(1, TrackKind.Audio, "jpn", "aac", false, true, 0, 2),
+            new(2, TrackKind.Audio, "eng", "aac", false, false, 0, 2, "Director's commentary")
+        };
+
+        var plan = TrackSelection.Choose(tracks, AudioChoice.KeepLanguages, SubtitleChoice.KeepAll, ["eng"]);
+
+        Assert.Equal([1, 2], plan.Kept.Select(t => t.Index).ToList());
+        Assert.True(plan.AudioFallback);
+        Assert.Equal(1, plan.FallbackTrack!.Index);
+    }
+
+    [Fact]
+    public void TrackSelection_falls_back_to_a_main_track_over_a_default_commentary()
+    {
+        var tracks = new List<TrackInfo>
+        {
+            new(1, TrackKind.Audio, "fre", "ac3", false, false, 0, 6),
+            new(2, TrackKind.Audio, "fre", "ac3", false, true, 0, 2, "Commentary")
+        };
+
+        var plan = TrackSelection.Choose(tracks, AudioChoice.KeepLanguages, SubtitleChoice.KeepAll, ["eng"]);
+
+        Assert.Equal([1], plan.Kept.Select(t => t.Index).ToList());
+    }
+
+    [Fact]
+    public void OnlyMainAudio_ignores_commentaries_and_copies_of_one_track()
+    {
+        var english = new TrackInfo(1, TrackKind.Audio, "eng", "ac3", false, true, 0, 6);
+        var commentary = new TrackInfo(2, TrackKind.Audio, "eng", "aac", false, false, 0, 2, "Commentary");
+        var french = new TrackInfo(3, TrackKind.Audio, "fre", "ac3", false, false, 0, 6);
+
+        Assert.Equal(english.Key, TrackSelection.OnlyMainAudio([english, commentary]));
+        Assert.Equal(english.Key, TrackSelection.OnlyMainAudio([english, english with { Index = 4 }]));
+        Assert.Null(TrackSelection.OnlyMainAudio([english, french]));
+        Assert.Null(TrackSelection.OnlyMainAudio([commentary]));
+    }
+
+    [Fact]
+    public void KeepsMainAudio_fails_a_new_file_left_with_only_a_commentary()
+    {
+        var main = new TrackInfo(1, TrackKind.Audio, "eng", "ac3", false, true, 0, 6);
+        var commentary = new TrackInfo(2, TrackKind.Audio, "eng", "aac", false, false, 0, 2, "Commentary");
+        var subtitle = new TrackInfo(3, TrackKind.Subtitle, "eng", "subrip", false, false, 0, 0);
+
+        Assert.True(TrackSelection.KeepsMainAudio([main, commentary], [main]));
+        Assert.False(TrackSelection.KeepsMainAudio([main, commentary], [commentary]));
+        Assert.False(TrackSelection.KeepsMainAudio([main], [subtitle]));
+        Assert.True(TrackSelection.KeepsMainAudio([commentary], [commentary]));
+        Assert.True(TrackSelection.KeepsMainAudio([subtitle], [subtitle]));
+    }
+
+    [Fact]
     public void TrackSelection_can_remove_all_subtitles_or_keep_only_forced_ones()
     {
         var tracks = new List<TrackInfo>

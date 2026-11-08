@@ -193,6 +193,9 @@ public class EncodeRequest
     /// <summary>Gets the tracks, by <see cref="TrackInfo.Key"/>, to keep even though their language isn't.</summary>
     public IList<string> IncludedTracks { get; init; } = [];
 
+    /// <summary>Gets languages chosen for tracks, by <see cref="TrackInfo.Key"/>, such as eng, which the new files are tagged with.</summary>
+    public IDictionary<string, string> TrackLanguages { get; init; } = new Dictionary<string, string>();
+
     /// <summary>Gets or sets a value indicating whether to only remove tracks, copying the video as it is, rather than re-encode it.</summary>
     public bool Remux { get; set; }
 
@@ -343,6 +346,9 @@ public class EncodeJob
 
     /// <summary>Gets or sets the tracks to keep even though their language isn't.</summary>
     public IReadOnlyList<string> IncludedTracks { get; set; } = [];
+
+    /// <summary>Gets or sets languages chosen for tracks, by <see cref="TrackInfo.Key"/>, which the new file is tagged with.</summary>
+    public IReadOnlyDictionary<string, string> TrackLanguages { get; set; } = new Dictionary<string, string>();
 
     /// <summary>Gets or sets a value indicating whether the job only removes tracks, copying the video as it is.</summary>
     public bool IsRemux { get; set; }
@@ -551,6 +557,9 @@ public class EncodeEstimate
     /// <summary>Gets or sets the number of files with no audio in the chosen languages, which keep their main audio track.</summary>
     public int AudioFallbackFiles { get; set; }
 
+    /// <summary>Gets the files counted in <see cref="AudioFallbackFiles"/>, with the track each keeps.</summary>
+    public IList<AudioFallbackFile> AudioFallbacks { get; init; } = [];
+
     /// <summary>Gets or sets the number of audio tracks that will be converted.</summary>
     public int ConvertedAudioTracks { get; set; }
 
@@ -609,7 +618,16 @@ public sealed record LanguageOption(string Code, string Name, int AudioTracks, l
 /// <param name="IsCommentary">Whether its title says it's a commentary.</param>
 /// <param name="Files">How many of the chosen files have it.</param>
 /// <param name="Bytes">The space it takes in all of them.</param>
-public sealed record TrackOption(string Key, TrackKind Kind, string Language, string Codec, string? Profile, int Channels, string? Title, bool IsDefault, bool IsForced, bool IsHearingImpaired, bool IsCommentary, int Files, long Bytes);
+/// <param name="FileNames">The names of the files that have it.</param>
+/// <param name="OnlyMainAudioIn">The names of the files where it's the only main audio, which keep it even if it's unticked.</param>
+public sealed record TrackOption(string Key, TrackKind Kind, string Language, string Codec, string? Profile, int Channels, string? Title, bool IsDefault, bool IsForced, bool IsHearingImpaired, bool IsCommentary, int Files, long Bytes, IReadOnlyList<string> FileNames, IReadOnlyList<string> OnlyMainAudioIn);
+
+/// <summary>
+/// A file that keeps an audio track the choices remove, because none of its main audio was chosen.
+/// </summary>
+/// <param name="Name">The file's title, such as "Example Show S01E01: Pilot".</param>
+/// <param name="TrackKey">The track it keeps, as <see cref="TrackInfo.Key"/>, which is in the estimate's tracks.</param>
+public sealed record AudioFallbackFile(string Name, string TrackKey);
 
 /// <summary>
 /// What a new file will be called.

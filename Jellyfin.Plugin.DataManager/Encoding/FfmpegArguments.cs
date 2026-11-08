@@ -124,10 +124,13 @@ public static class FfmpegArguments
         }
 
         args.AddRange(["-c:a", "copy"]);
+        var flags = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         if (extras.Audio.Count > 0 && tracks is not null)
         {
             var audioKept = tracks.Kept.Where(t => t.Kind == TrackKind.Audio).ToList();
-            var retitle = audioKept.Where(t => AudioConverter.TitleNamesFormat(t.Title)).Select(t => t.Index).ToHashSet();
+
+            // Without planned titles, a converted track whose title names its old format gets a new one.
+            var retitle = extras.Rewrites.Count > 0 ? [] : audioKept.Where(t => AudioConverter.TitleNamesFormat(t.Title)).Select(t => t.Index).ToHashSet();
             args.AddRange(AudioConverter.Arguments(extras.Audio, audioKept.Select(t => t.Index).ToList(), retitle));
         }
 
@@ -135,7 +138,46 @@ public static class FfmpegArguments
         if (tracks is not null && tracks.Removed.Any(t => t.Kind == TrackKind.Audio && t.IsDefault)
             && tracks.Kept.Any(t => t.Kind == TrackKind.Audio) && !tracks.Kept.Any(t => t.Kind == TrackKind.Audio && t.IsDefault))
         {
-            args.AddRange(["-disposition:a:0", "default"]);
+            flags["a:0"] = ["default"];
+        }
+
+        // Titles, languages and flags, by each track's place among the new file's audio or subtitles.
+        if (tracks is not null && extras.Rewrites.Count > 0)
+        {
+            var byIndex = extras.Rewrites.ToDictionary(r => r.Index);
+            foreach (var kind in new[] { TrackKind.Audio, TrackKind.Subtitle })
+            {
+                var kept = tracks.Kept.Where(t => t.Kind == kind).ToList();
+                for (var n = 0; n < kept.Count; n++)
+                {
+                    if (!byIndex.TryGetValue(kept[n].Index, out var rewrite))
+                    {
+                        continue;
+                    }
+
+                    var spec = (kind == TrackKind.Audio ? "a:" : "s:") + n.ToString(CultureInfo.InvariantCulture);
+                    if (rewrite.Title is not null)
+                    {
+                        args.AddRange(["-metadata:s:" + spec, "title=" + rewrite.Title]);
+                    }
+
+                    if (rewrite.Language is not null)
+                    {
+                        args.AddRange(["-metadata:s:" + spec, "language=" + rewrite.Language]);
+                    }
+
+                    if (rewrite.Flags.Count > 0)
+                    {
+                        (flags.TryGetValue(spec, out var list) ? list : flags[spec] = []).AddRange(rewrite.Flags);
+                    }
+                }
+            }
+        }
+
+        // Flags are added to what each track already has.
+        foreach (var (spec, list) in flags)
+        {
+            args.AddRange(["-disposition:" + spec, string.Concat(list.Distinct(StringComparer.Ordinal).Select(f => "+" + f))]);
         }
 
         // mp4 text subtitles (mov_text) can't be copied into mkv, so they become srt. mp4 output only happens

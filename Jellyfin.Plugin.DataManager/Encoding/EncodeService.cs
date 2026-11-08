@@ -198,6 +198,7 @@ public sealed class EncodeService : IDisposable
                 Languages = languages,
                 ExcludedTracks = request.ExcludedTracks.ToList(),
                 IncludedTracks = request.IncludedTracks.ToList(),
+                TrackLanguages = TrackLanguages(request.TrackLanguages),
                 IsRemux = request.Remux,
                 AudioFormat = request.AudioFormat,
                 StereoAudio = request.StereoAudio,
@@ -385,6 +386,7 @@ public sealed class EncodeService : IDisposable
             Languages = request.Languages,
             ExcludedTracks = request.ExcludedTracks,
             IncludedTracks = request.IncludedTracks,
+            TrackLanguages = request.TrackLanguages,
             Remux = request.Remux,
             AudioFormat = request.AudioFormat,
             StereoAudio = request.StereoAudio,
@@ -415,6 +417,11 @@ public sealed class EncodeService : IDisposable
             total.RemovedAudioTracks += part.RemovedAudioTracks;
             total.RemovedSubtitleTracks += part.RemovedSubtitleTracks;
             total.AudioFallbackFiles += part.AudioFallbackFiles;
+            foreach (var fallback in part.AudioFallbacks)
+            {
+                total.AudioFallbacks.Add(fallback);
+            }
+
             total.ConvertedAudioTracks += part.ConvertedAudioTracks;
             total.AudioSavingBytes += part.AudioSavingBytes;
             total.ConvertedObjectAudioTracks += part.ConvertedObjectAudioTracks;
@@ -479,6 +486,8 @@ public sealed class EncodeService : IDisposable
         var choosing = request.Audio != AudioChoice.KeepAll || request.Subtitles != SubtitleChoice.KeepAll;
         var found = new Dictionary<string, (int AudioTracks, long AudioBytes, int SubtitleTracks, long SubtitleBytes)>(StringComparer.Ordinal);
         var kinds = new Dictionary<string, (TrackInfo First, bool IsDefault, int Files, long Bytes)>(StringComparer.Ordinal);
+        var kindFiles = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var onlyMain = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var id in request.ItemIds.Distinct())
         {
             var item = _libraryManager.GetItemById<Video>(id);
@@ -503,8 +512,22 @@ public sealed class EncodeService : IDisposable
 
             // Every track's language is listed so the user can choose; the plan says what the choice removes.
             var tracks = _languages.Tracks(item.GetMediaStreams());
+            var title = StorageScanner.Title(item);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (TrackSelection.OnlyMainAudio(tracks) is { } mainKey)
+            {
+                (onlyMain.TryGetValue(mainKey, out var names) ? names : onlyMain[mainKey] = []).Add(title);
+            }
+
             foreach (var track in tracks)
             {
+                // A file with two copies of a track has it once.
+                var first = seen.Add(track.Key);
+                if (first)
+                {
+                    (kindFiles.TryGetValue(track.Key, out var names) ? names : kindFiles[track.Key] = []).Add(title);
+                }
+
                 var key = track.Language ?? string.Empty;
                 var bytes = (long)(track.EffectiveBitRate * file.DurationSeconds / 8);
                 found.TryGetValue(key, out var sum);
@@ -512,7 +535,7 @@ public sealed class EncodeService : IDisposable
                     ? (sum.AudioTracks + 1, sum.AudioBytes + bytes, sum.SubtitleTracks, sum.SubtitleBytes)
                     : (sum.AudioTracks, sum.AudioBytes, sum.SubtitleTracks + 1, sum.SubtitleBytes + bytes);
                 kinds[track.Key] = kinds.TryGetValue(track.Key, out var kind)
-                    ? (kind.First, kind.IsDefault || track.IsDefault, kind.Files + 1, kind.Bytes + bytes)
+                    ? (kind.First, kind.IsDefault || track.IsDefault, kind.Files + (first ? 1 : 0), kind.Bytes + bytes)
                     : (track, track.IsDefault, 1, bytes);
             }
 
@@ -523,7 +546,11 @@ public sealed class EncodeService : IDisposable
                 estimate.RemovedAudioTracks += trackPlan.RemovedAudio;
                 estimate.RemovedSubtitleTracks += trackPlan.RemovedSubtitles;
                 estimate.RemovedTrackBytes += (long)(trackPlan.RemovedBitRate * file.DurationSeconds / 8);
-                estimate.AudioFallbackFiles += trackPlan.AudioFallback ? 1 : 0;
+                if (trackPlan.FallbackTrack is { } kept)
+                {
+                    estimate.AudioFallbackFiles++;
+                    estimate.AudioFallbacks.Add(new AudioFallbackFile(title, kept.Key));
+                }
             }
 
             // Converted audio keeps its place but shrinks. Without a choice of tracks every one is kept.
@@ -562,7 +589,7 @@ public sealed class EncodeService : IDisposable
         foreach (var (key, kind) in kinds.OrderBy(k => k.Value.First.Kind).ThenByDescending(k => k.Value.Bytes))
         {
             var t = kind.First;
-            estimate.Tracks.Add(new TrackOption(key, t.Kind, t.Language ?? string.Empty, t.Codec, t.Profile, t.Channels, t.Title, kind.IsDefault, t.IsForced, t.IsHearingImpaired, t.IsCommentary, kind.Files, kind.Bytes));
+            estimate.Tracks.Add(new TrackOption(key, t.Kind, t.Language ?? string.Empty, t.Codec, t.Profile, t.Channels, t.Title, kind.IsDefault, t.IsForced, t.IsHearingImpaired, t.IsCommentary, kind.Files, kind.Bytes, kindFiles[key], onlyMain.TryGetValue(key, out var only) ? only : []));
         }
 
         // The user's own audio language, then the server's, where the files have tracks in them.
@@ -1527,8 +1554,10 @@ public sealed class EncodeService : IDisposable
     // file itself is checked to have the same tracks at the same numbers, so the right ones are removed.
     private async Task<TrackPlan?> ChooseTracksAsync(EncodeJob job, Video item, FileInfo source, CancellationToken cancellationToken)
     {
-        // Converting audio needs the list of tracks too, to know which ones to convert.
-        if (job.Audio == AudioChoice.KeepAll && job.Subtitles == SubtitleChoice.KeepAll && job.AudioFormat == AudioFormat.Keep && !job.StereoAudio)
+        // Converting audio needs the list of tracks too, to know which ones to convert, and so does tidying titles.
+        var rules = TitleRules.From(Plugin.Instance?.Configuration ?? new PluginConfiguration());
+        var choosing = job.Audio != AudioChoice.KeepAll || job.Subtitles != SubtitleChoice.KeepAll || job.AudioFormat != AudioFormat.Keep || job.StereoAudio || job.TrackLanguages.Count > 0;
+        if (!choosing && !rules.ChangesAnything)
         {
             return null;
         }
@@ -1537,6 +1566,12 @@ public sealed class EncodeService : IDisposable
         var probed = await ProbeTracksAsync(source.FullName, cancellationToken).ConfigureAwait(false);
         if (listed.Count != probed.Count || listed.Any(t => !probed.Any(p => p.Index == t.Index && p.Kind == t.Kind)))
         {
+            // Tidying titles isn't worth stopping for: the tracks are copied as they are.
+            if (!choosing)
+            {
+                return null;
+            }
+
             throw new InvalidOperationException("Jellyfin's list of this file's audio and subtitle tracks doesn't match the file. Refresh the item's metadata in Jellyfin and try again. The original was not changed.");
         }
 
@@ -1628,7 +1663,29 @@ public sealed class EncodeService : IDisposable
             job.TracksNote = string.Join(" ", new[] { job.TracksNote }.Concat(notes).Where(n => !string.IsNullOrEmpty(n)));
         }
 
-        return new EncodeExtras(audio, toneMap, strip, keptAttachments, job.StripCoverArt, sourceAttachments);
+        return new EncodeExtras(audio, toneMap, strip, keptAttachments, job.StripCoverArt, sourceAttachments) { Rewrites = PlanRewrites(job, tracks, audio) };
+    }
+
+    // The new titles, languages and flags of the tracks kept, from the settings and the languages chosen in the window.
+    private List<TrackRewrite> PlanRewrites(EncodeJob job, TrackPlan? tracks, IReadOnlyList<AudioConversion> audio)
+    {
+        if (tracks is null)
+        {
+            return [];
+        }
+
+        var rules = TitleRules.From(Plugin.Instance?.Configuration ?? new PluginConfiguration());
+        var conversions = audio.ToDictionary(a => a.Index);
+        return tracks.Kept
+            .Select(t => TrackTitles.Plan(
+                t,
+                rules,
+                _languages.Known,
+                _languages.DisplayName,
+                conversions.GetValueOrDefault(t.Index),
+                job.TrackLanguages.GetValueOrDefault(t.Key)))
+            .Where(r => r.ChangesAnything)
+            .ToList();
     }
 
     // The bitstream filter that removes Dolby Vision: FFmpeg's own, or jellyfin-ffmpeg's older one, if either is there.
@@ -1800,6 +1857,12 @@ public sealed class EncodeService : IDisposable
             : Path.Combine(folder, baseName + "." + container);
     }
 
+    // Languages chosen for tracks, as codes Jellyfin knows, so nothing else is written into a file.
+    private Dictionary<string, string> TrackLanguages(IDictionary<string, string> chosen)
+        => chosen.Select(c => (c.Key, Code: _languages.Known(c.Value)))
+            .Where(c => c.Code is not null)
+            .ToDictionary(c => c.Key, c => c.Code!, StringComparer.OrdinalIgnoreCase);
+
     private List<string> NormalizeLanguages(IEnumerable<string> languages)
         => languages.Select(_languages.Normalize).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
 
@@ -1873,7 +1936,8 @@ public sealed class EncodeService : IDisposable
                 Text(disposition, "forced") == "1" || title.Contains("forced", StringComparison.OrdinalIgnoreCase),
                 Text(disposition, "default") == "1",
                 bitRate,
-                (int)Number(Text(stream, "channels"))));
+                (int)Number(Text(stream, "channels")),
+                string.IsNullOrWhiteSpace(title) ? null : title));
         }
 
         return tracks;
@@ -2278,6 +2342,14 @@ public sealed class EncodeService : IDisposable
                 "The new file is {0:F0}s long but the original is {1:F0}s, so it was discarded and the original kept.",
                 output.VideoSeconds ?? output.FileSeconds,
                 source.VideoSeconds ?? source.FileSeconds));
+        }
+
+        // A film left with only a commentary, or no sound at all, isn't worth keeping.
+        var sourceTracks = await ProbeTracksAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        var outputTracks = await ProbeTracksAsync(outputPath, cancellationToken).ConfigureAwait(false);
+        if (!TrackSelection.KeepsMainAudio(sourceTracks, outputTracks))
+        {
+            throw new InvalidOperationException("The new file has no main audio, only a commentary or none at all, so it was discarded and the original kept.");
         }
     }
 

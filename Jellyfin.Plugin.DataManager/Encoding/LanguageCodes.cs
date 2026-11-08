@@ -62,6 +62,24 @@ public sealed class LanguageCodes
     }
 
     /// <summary>
+    /// Gets the code of a language Jellyfin knows, by its name or code, such as "Japanese" or "jpn".
+    /// </summary>
+    /// <param name="word">The name or code.</param>
+    /// <returns>The three-letter code, or null if Jellyfin doesn't know it.</returns>
+    public string? Known(string word)
+    {
+        ArgumentNullException.ThrowIfNull(word);
+        if (_unknown.Contains(word.Trim()))
+        {
+            return null;
+        }
+
+#pragma warning disable CA1308 // Language codes are lower case by convention (ISO 639).
+        return Find(word.Trim())?.ThreeLetterISOLanguageName?.ToLowerInvariant();
+#pragma warning restore CA1308
+    }
+
+    /// <summary>
     /// Gets a language's name, such as English, for a normalized code.
     /// </summary>
     /// <param name="code">The code from <see cref="Normalize"/>.</param>

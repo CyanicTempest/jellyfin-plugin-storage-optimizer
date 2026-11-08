@@ -89,8 +89,9 @@ public sealed record TrackInfo(int Index, TrackKind Kind, string? Language, stri
 /// </summary>
 /// <param name="Kept">The tracks kept, in the file's order.</param>
 /// <param name="Removed">The tracks removed.</param>
-/// <param name="AudioFallback">Whether no audio track was in the chosen languages, so the main one was kept anyway.</param>
-public sealed record TrackPlan(IReadOnlyList<TrackInfo> Kept, IReadOnlyList<TrackInfo> Removed, bool AudioFallback)
+/// <param name="AudioFallback">Whether no main audio track (one that isn't a commentary) was in the chosen languages, so the main one was kept anyway.</param>
+/// <param name="FallbackTrack">The audio track kept because of that, or null.</param>
+public sealed record TrackPlan(IReadOnlyList<TrackInfo> Kept, IReadOnlyList<TrackInfo> Removed, bool AudioFallback, TrackInfo? FallbackTrack = null)
 {
     /// <summary>Gets the number of audio tracks removed.</summary>
     public int RemovedAudio => Removed.Count(t => t.Kind == TrackKind.Audio);
@@ -132,7 +133,7 @@ public sealed record TrackPlan(IReadOnlyList<TrackInfo> Kept, IReadOnlyList<Trac
         var text = parts.Count == 0 ? null : "Removed " + string.Join(" and ", parts) + ".";
         if (AudioFallback)
         {
-            text = (text is null ? string.Empty : text + " ") + "None of its audio was chosen, so its main audio track was kept.";
+            text = (text is null ? string.Empty : text + " ") + "None of its main audio was chosen, so its main audio track was kept.";
         }
 
         return text;
@@ -145,9 +146,9 @@ public sealed record TrackPlan(IReadOnlyList<TrackInfo> Kept, IReadOnlyList<Trac
 public static class TrackSelection
 {
     /// <summary>
-    /// Chooses the tracks to keep. A file is never left without audio: when none of its audio is in the chosen
-    /// languages, its default track (or else its first) is kept. Tracks with no language set are always kept,
-    /// since there's no telling what they are.
+    /// Chooses the tracks to keep. A file is never left without its main audio: when none of its audio, or only a
+    /// commentary, is in the chosen languages, its default track that isn't a commentary (or else its first such
+    /// track) is kept too. Tracks with no language set are always kept, since there's no telling what they are.
     /// </summary>
     /// <param name="tracks">The file's audio and subtitle tracks.</param>
     /// <param name="audio">Which audio to keep.</param>
@@ -178,14 +179,19 @@ public static class TrackSelection
 
         var keep = new HashSet<int>();
         var audioTracks = tracks.Where(t => t.Kind == TrackKind.Audio).ToList();
-        var fallback = false;
+        TrackInfo? fallback = null;
         if (audio == AudioChoice.KeepLanguages)
         {
             var kept = audioTracks.Where(InLanguages).ToList();
-            if (kept.Count == 0 && audioTracks.Count > 0)
+            if (!kept.Any(t => !t.IsCommentary) && audioTracks.Count > 0)
             {
-                kept.Add(audioTracks.FirstOrDefault(t => t.IsDefault) ?? audioTracks[0]);
-                fallback = true;
+                var main = audioTracks.Where(t => !t.IsCommentary).ToList();
+                var pick = main.FirstOrDefault(t => t.IsDefault) ?? main.FirstOrDefault() ?? audioTracks.FirstOrDefault(t => t.IsDefault) ?? audioTracks[0];
+                if (!kept.Contains(pick))
+                {
+                    kept.Add(pick);
+                    fallback = pick;
+                }
             }
 
             keep.UnionWith(kept.Select(t => t.Index));
@@ -211,7 +217,41 @@ public static class TrackSelection
         }
 
         var ordered = tracks.OrderBy(t => t.Index).ToList();
-        return new TrackPlan(ordered.Where(t => keep.Contains(t.Index)).ToList(), ordered.Where(t => !keep.Contains(t.Index)).ToList(), fallback);
+        return new TrackPlan(ordered.Where(t => keep.Contains(t.Index)).ToList(), ordered.Where(t => !keep.Contains(t.Index)).ToList(), fallback is not null, fallback);
+    }
+
+    /// <summary>
+    /// Gets the track that is a file's only main audio, the one sound the film has apart from commentaries, so the
+    /// window can warn before it's unticked. Several copies of the same track count as one.
+    /// </summary>
+    /// <param name="tracks">The file's tracks.</param>
+    /// <returns>The key of its only main audio track, or null when it has none or more than one kind.</returns>
+    public static string? OnlyMainAudio(IReadOnlyList<TrackInfo> tracks)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        var keys = tracks.Where(t => t.Kind == TrackKind.Audio && !t.IsCommentary).Select(t => t.Key).Distinct(StringComparer.Ordinal).ToList();
+        return keys.Count == 1 ? keys[0] : null;
+    }
+
+    /// <summary>
+    /// Gets whether a file's audio still has its film's sound: some audio that isn't a commentary, or only
+    /// commentaries if that's all the original had.
+    /// </summary>
+    /// <param name="original">The original's audio and subtitle tracks.</param>
+    /// <param name="output">The new file's.</param>
+    /// <returns>Whether the new file's audio is fine.</returns>
+    public static bool KeepsMainAudio(IReadOnlyList<TrackInfo> original, IReadOnlyList<TrackInfo> output)
+    {
+        ArgumentNullException.ThrowIfNull(original);
+        ArgumentNullException.ThrowIfNull(output);
+        var originalAudio = original.Where(t => t.Kind == TrackKind.Audio).ToList();
+        var outputAudio = output.Where(t => t.Kind == TrackKind.Audio).ToList();
+        if (originalAudio.Count == 0)
+        {
+            return true;
+        }
+
+        return originalAudio.Any(t => !t.IsCommentary) ? outputAudio.Any(t => !t.IsCommentary) : outputAudio.Count > 0;
     }
 
     /// <summary>

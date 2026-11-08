@@ -90,6 +90,34 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool KeepFramesOnGpu { get; set; }
 
     /// <summary>
+    /// Gets or sets what re-encodes and remuxes do with audio track titles. They're tidied unless this is changed.
+    /// </summary>
+    public TrackTitleMode AudioTitles { get; set; } = TrackTitleMode.Clear;
+
+    /// <summary>
+    /// Gets or sets what re-encodes and remuxes do with subtitle track titles. They're tidied unless this is changed.
+    /// </summary>
+    public TrackTitleMode SubtitleTitles { get; set; } = TrackTitleMode.Clear;
+
+    /// <summary>Gets or sets a value indicating whether tidied titles keep words saying a track is a commentary.</summary>
+    public bool KeepCommentaryWords { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether tidied titles keep words saying a track is audio description.</summary>
+    public bool KeepAudioDescriptionWords { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether tidied titles keep words saying a track is the original language.</summary>
+    public bool KeepOriginalWords { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether tidied titles keep any other words, such as "Signs and songs".</summary>
+    public bool KeepOtherTitleText { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a track with no language gets the one its title names, and tracks get
+    /// the commentary, audio description, original, forced and hearing impaired flags their titles describe.
+    /// </summary>
+    public bool SetTrackLanguageAndFlags { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the ids of the drives the overview leaves out. Drives not listed are shown, so a new drive shows up
     /// on its own. Encodes still check a hidden drive's free space.
     /// </summary>
