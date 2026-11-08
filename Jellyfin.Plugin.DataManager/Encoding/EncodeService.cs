@@ -76,6 +76,8 @@ public sealed class EncodeService : IDisposable
     private readonly Lock _viewerLock = new();
     private readonly CancellationTokenSource _shutdown = new();
     private Task? _dispatcher;
+    private bool _recovered;
+    private readonly DateTime _createdAt = DateTime.UtcNow;
     private volatile string? _testHold;
     private int _heldStreams;
     private DateTime _heldAt = DateTime.MinValue;
@@ -161,6 +163,7 @@ public sealed class EncodeService : IDisposable
     /// <returns>A snapshot of the jobs.</returns>
     public IReadOnlyList<EncodeJob> GetJobs()
     {
+        RecoverJobs();
         lock (_jobsLock)
         {
             return _jobs.OrderByDescending(j => j.QueuedAt).ToList();
@@ -174,6 +177,7 @@ public sealed class EncodeService : IDisposable
     /// <returns>The new jobs.</returns>
     public IReadOnlyList<EncodeJob> Enqueue(EncodeRequest request)
     {
+        RecoverJobs();
         ArgumentNullException.ThrowIfNull(request);
 
         // A video that already has a re-encode going isn't queued again: two jobs would share one hidden file.
@@ -236,8 +240,102 @@ public sealed class EncodeService : IDisposable
             _dispatcher ??= Task.Run(() => RunDispatcherAsync(_shutdown.Token));
         }
 
+        SaveJobs();
         Wake();
         return created;
+    }
+
+    /// <summary>
+    /// Puts back the encode list saved before the server last stopped. Runs once; later calls do nothing.
+    /// </summary>
+    public void RecoverJobs()
+    {
+        lock (_jobsLock)
+        {
+            if (_recovered)
+            {
+                return;
+            }
+
+            _recovered = true;
+        }
+
+        var jobs = JobStore.Recover(JobStore.Load(), PartialMarker);
+        if (jobs.Count == 0)
+        {
+            return;
+        }
+
+        lock (_jobsLock)
+        {
+            foreach (var job in jobs.Where(j => !_jobs.Any(o => o.Id == j.Id)))
+            {
+                _jobs.Add(job);
+            }
+
+            if (_jobs.Any(j => j.State == EncodeJobState.Queued))
+            {
+                _dispatcher ??= Task.Run(() => RunDispatcherAsync(_shutdown.Token));
+            }
+        }
+
+        _logger.LogInformation(
+            "Storage Optimizer put back {Count} encodes from before the restart, {Waiting} of them waiting and {Stopped} stopped part way",
+            jobs.Count,
+            jobs.Count(j => j.State == EncodeJobState.Queued),
+            jobs.Count(j => j.Interrupted));
+        SaveJobs();
+        Wake();
+    }
+
+    /// <summary>
+    /// Runs a failed, stopped or cancelled job again with the same settings, as long as nothing else is encoding the file.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>True if it was put back in the queue.</returns>
+    public bool Restart(Guid jobId)
+    {
+        lock (_jobsLock)
+        {
+            var job = _jobs.FirstOrDefault(j => j.Id == jobId);
+            if (job is null || !job.CanRestart
+                || _jobs.Any(o => o != job && o.ItemId == job.ItemId && o.State is EncodeJobState.Queued or EncodeJobState.Running or EncodeJobState.Paused or EncodeJobState.NeedsDecision))
+            {
+                return false;
+            }
+
+            job.Cancellation.Dispose();
+            job.Cancellation = new CancellationTokenSource();
+            job.State = EncodeJobState.Queued;
+            job.Interrupted = false;
+            job.Progress = 0;
+            job.RemainingSeconds = null;
+            job.OutputBytes = null;
+            job.OutputPath = null;
+            job.OutputItemId = null;
+            job.RecycledPath = null;
+            job.TracksNote = null;
+            job.Message = null;
+            job.FinishedAt = null;
+            job.QueuedAt = DateTime.UtcNow;
+            _dispatcher ??= Task.Run(() => RunDispatcherAsync(_shutdown.Token));
+        }
+
+        SaveJobs();
+        Wake();
+        return true;
+    }
+
+    // The list is saved whenever it changes, so it survives the server stopping.
+    private void SaveJobs()
+    {
+        List<EncodeJob> snapshot;
+        lock (_jobsLock)
+        {
+            snapshot = _jobs.ToList();
+        }
+
+        JobStore.Save(snapshot);
     }
 
     /// <summary>
@@ -299,6 +397,7 @@ public sealed class EncodeService : IDisposable
             job.Cancellation.Dispose();
         }
 
+        SaveJobs();
         var result = new ClearResult(removed.Count(j => j.Message == "Removed from the queue."), removed.Count(j => j.Message != "Removed from the queue."));
         _logger.LogInformation("Storage Optimizer cleared its queue: {Waiting} waiting and {Finished} failed or cancelled jobs removed", result.Waiting, result.Finished);
         Wake();
@@ -312,10 +411,14 @@ public sealed class EncodeService : IDisposable
     /// <returns>How many were removed.</returns>
     public int RemoveFinished(Guid? jobId = null)
     {
+        int removed;
         lock (_jobsLock)
         {
-            return _jobs.RemoveAll(j => j.State is EncodeJobState.Completed or EncodeJobState.Discarded && (jobId is null || j.Id == jobId));
+            removed = _jobs.RemoveAll(j => j.State is EncodeJobState.Completed or EncodeJobState.Discarded && (jobId is null || j.Id == jobId));
         }
+
+        SaveJobs();
+        return removed;
     }
 
     /// <summary>
@@ -1261,6 +1364,18 @@ public sealed class EncodeService : IDisposable
             }
         }
 
+        // Straight after Jellyfin starts, it hasn't yet found out what its ffmpeg can encode, and a job started then
+        // would fail. Waiting jobs, such as ones put back after a restart, wait for that, for up to ten minutes.
+        if (queued.Count > 0 && !EncoderReady())
+        {
+            foreach (var job in queued)
+            {
+                job.Message = "Waiting for Jellyfin to finish starting.";
+            }
+
+            queued.Clear();
+        }
+
         // Outside the hours set, nothing new starts; encodes already going finish.
         if (queued.Count > 0 && OutsideHours(config, DateTime.Now) is { } until)
         {
@@ -1302,6 +1417,8 @@ public sealed class EncodeService : IDisposable
             job.StartedAt = DateTime.UtcNow;
             job.Message = null;
         }
+
+        SaveJobs();
 
         _ = Task.Run(
             async () =>
@@ -1379,6 +1496,11 @@ public sealed class EncodeService : IDisposable
         try
         {
             await RunJobAsync(job, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested && !job.Cancellation.IsCancellationRequested)
+        {
+            // The server is shutting down: the job stays as it was saved, and comes back as stopped part way.
+            _logger.LogInformation("Storage Optimizer stopped encoding {Path} as the server shuts down", job.SourcePath);
         }
         catch (OperationCanceledException)
         {
@@ -2876,12 +2998,17 @@ public sealed class EncodeService : IDisposable
         => _libraryManager.FindByPath(path, false) as Video
             ?? original.GetAllVersions().FirstOrDefault(v => string.Equals(v.Path, path, StringComparison.Ordinal));
 
+    private bool EncoderReady()
+        => DateTime.UtcNow - _createdAt > TimeSpan.FromMinutes(10)
+            || (!string.IsNullOrEmpty(_mediaEncoder.EncoderPath) && (_mediaEncoder.SupportsEncoder("libx264") || _mediaEncoder.SupportsEncoder("libx265")));
+
     private void Finish(EncodeJob job, EncodeJobState state, string message)
     {
         job.State = state;
         job.Message = message;
         job.FinishedAt = DateTime.UtcNow;
         _logger.LogInformation("Storage Optimizer re-encode of {Path}: {State}. {Message}", job.SourcePath, state, message);
+        SaveJobs();
     }
 
     private void TrimFinishedJobs()

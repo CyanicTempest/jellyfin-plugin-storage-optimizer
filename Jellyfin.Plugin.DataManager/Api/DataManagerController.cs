@@ -364,6 +364,16 @@ public class DataManagerController : ControllerBase
         => Ok(await _encodeService.StatusAsync(cancellationToken).ConfigureAwait(false));
 
     /// <summary>
+    /// Runs a failed, stopped or cancelled job again with the same settings.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>No content, or not found if it can't be restarted.</returns>
+    [HttpPost("Encode/Jobs/{jobId}/Restart")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult RestartJob([FromRoute] Guid jobId) => _encodeService.Restart(jobId) ? NoContent() : NotFound();
+
+    /// <summary>
     /// Lets a paused re-encode carry on now, whatever the setting for viewers says.
     /// </summary>
     /// <param name="jobId">The job id.</param>

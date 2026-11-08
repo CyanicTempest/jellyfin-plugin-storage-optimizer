@@ -30,5 +30,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<MediaDeleter>();
         serviceCollection.AddSingleton<LeftoverCleaner>();
         serviceCollection.AddSingleton<WatchHistory>();
+        serviceCollection.AddHostedService<QueueRecovery>();
     }
 }

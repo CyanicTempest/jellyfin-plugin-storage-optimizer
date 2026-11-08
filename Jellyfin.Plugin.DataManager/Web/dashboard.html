@@ -5722,6 +5722,7 @@
                     var meta = what + ' · ' + (j.Mode === 'KeepBoth' ? 'keeps original' : 'replaces original') + (finished ? '' : ' · ' + formatBytes(j.SourceBytes));
                     var actions = (j.State === 'Paused' ? '<button type="button" class="dm-small-button dm-resume" data-id="' + j.Id + '" title="Carry on now, even though someone is watching">Resume now</button>' : '')
                         + (j.CanCancel ? '<button type="button" class="dm-small-button dm-quiet dm-cancel" data-id="' + j.Id + '">Cancel</button>' : '')
+                        + (j.CanRestart ? '<button type="button" class="dm-small-button dm-restart" data-id="' + j.Id + '" title="Run it again with the same settings">Restart</button>' : '')
                         + (j.State === 'Completed' || j.State === 'Discarded' ? '<button type="button" class="dm-small-button dm-quiet dm-remove-job" data-id="' + j.Id + '" title="Take this off the list. Its files stay as they are.">Remove</button>' : '')
                         + (j.State === 'NeedsDecision'
                             ? '<button type="button" class="dm-small-button dm-decide" data-id="' + j.Id + '" data-use="true">' + (j.Mode === 'Replace' ? 'Replace anyway' : 'Add it anyway') + '</button>'
@@ -5957,6 +5958,16 @@
                     var cancelRest = e.target.closest('.dm-cancel-season');
                     if (cancelRest) {
                         cancelSeason(cancelRest.dataset.key);
+                        return;
+                    }
+                    var restart = e.target.closest('.dm-restart');
+                    if (restart) {
+                        restart.disabled = true;
+                        ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('DataManager/Encode/Jobs/' + restart.dataset.id + '/Restart') }).then(loadJobs, function () {
+                            restart.disabled = false;
+                            showToast('That file is already waiting or encoding, so it wasn\'t restarted.');
+                            loadJobs();
+                        });
                         return;
                     }
                     var removeJob = e.target.closest('.dm-remove-job');

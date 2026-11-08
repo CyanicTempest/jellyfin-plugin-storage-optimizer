@@ -359,6 +359,12 @@ public class EncodeJob
     /// <summary>Gets or sets a value indicating whether the job only removes tracks, copying the video as it is.</summary>
     public bool IsRemux { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether the job was stopped part way by the server stopping.</summary>
+    public bool Interrupted { get; set; }
+
+    /// <summary>Gets a value indicating whether the job can be run again with the same settings.</summary>
+    public bool CanRestart => State is EncodeJobState.Failed or EncodeJobState.Cancelled;
+
     /// <summary>Gets or sets where the replaced original went in the recycle folder, or null if it was deleted or kept.</summary>
     public string? RecycledPath { get; set; }
 
