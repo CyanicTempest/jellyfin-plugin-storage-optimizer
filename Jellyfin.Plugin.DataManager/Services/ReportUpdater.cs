@@ -104,6 +104,58 @@ public sealed class ReportUpdater
     }
 
     /// <summary>
+    /// Finds the library a path is in from the libraries' folders: the deepest folder that holds it. Collections and
+    /// playlists aren't libraries.
+    /// </summary>
+    /// <param name="libraries">Each library's name, type and folders.</param>
+    /// <param name="path">The file's path.</param>
+    /// <returns>The library's name, or null if no library folder holds it.</returns>
+    internal static string? LibraryByFolder(IEnumerable<(string Name, string? Type, IEnumerable<string> Locations)> libraries, string path)
+    {
+        string? best = null;
+        var length = -1;
+        foreach (var (name, type, locations) in libraries)
+        {
+            if (string.Equals(type, "boxsets", StringComparison.OrdinalIgnoreCase) || string.Equals(type, "playlists", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var raw in locations)
+            {
+                var location = Path.TrimEndingDirectorySeparator(raw);
+                if (location.Length > length && path.StartsWith(location + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                {
+                    best = name;
+                    length = location.Length;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    // Jellyfin doesn't link some extras and trailers to a library, so they're filed under their movie's library, or
+    // the library whose folder they're in.
+    private string LibraryName(BaseItem item, string path)
+    {
+        if (_libraryManager.GetCollectionFolders(item).FirstOrDefault()?.Name is { Length: > 0 } name)
+        {
+            return name;
+        }
+
+        var owner = item.OwnerId.Equals(Guid.Empty) ? null : _libraryManager.GetItemById(item.OwnerId);
+        if (owner is not null && _libraryManager.GetCollectionFolders(owner).FirstOrDefault()?.Name is { Length: > 0 } ownerLibrary)
+        {
+            return ownerLibrary;
+        }
+
+        var libraries = _libraryManager.GetVirtualFolders()
+            .Select(f => (f.Name, f.CollectionType?.ToString(), (IEnumerable<string>)f.Locations));
+        return LibraryByFolder(libraries, path) ?? "Unknown";
+    }
+
+    /// <summary>
     /// Describes one video for the report.
     /// </summary>
     /// <param name="item">The video.</param>
@@ -130,7 +182,7 @@ public sealed class ReportUpdater
             Name = item.Name ?? fileInfo.Name,
             Path = fileInfo.FullName,
             Folder = fileInfo.DirectoryName ?? string.Empty,
-            Library = _libraryManager.GetCollectionFolders(item).FirstOrDefault()?.Name ?? "Unknown",
+            Library = LibraryName(item, fileInfo.FullName),
             SizeBytes = fileInfo.Length,
             Container = source?.Container ?? fileInfo.Extension.TrimStart('.'),
             VideoCodec = video?.Codec ?? string.Empty,
