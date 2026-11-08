@@ -1539,6 +1539,11 @@
                     return top.concat(['other']).map(function (k) { return byKey[k]; }).filter(Boolean);
                 }
 
+                // What's always left free on a drive, from the settings.
+                function keepFree() {
+                    return summary && summary.KeepFreeBytes >= 0 ? summary.KeepFreeBytes : 1024 * 1024 * 1024;
+                }
+
                 function shownDrives() {
                     return (summary.Drives || []).filter(function (d) { return !d.Hidden && d.TotalBytes > 0; });
                 }
@@ -1819,9 +1824,15 @@
 
                 // What re-encoding could free. Suggested files are in the accent colour; the rest are only worth a look.
                 // A saving is rough until test encodes have measured it, and says which it is.
+                function notSuggestedText() {
+                    var bytes = summary && summary.SuggestMinimumBytes > 0 ? summary.SuggestMinimumBytes : 300 * 1024 * 1024;
+                    var share = summary && summary.SuggestMinimumShare > 0 ? summary.SuggestMinimumShare : 0.25;
+                    return 'Not suggested: it saves under ' + formatBytes(bytes) + ' or ' + Math.round(share * 100) + '% of its size, or already has another version';
+                }
+
                 function savingCell(saving, size, suggested, note, tested) {
                     if (!(saving > 0)) { return '<div class="dm-sv dm-none">' + escapeHtml(note || 'None') + '</div>'; }
-                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.charAt(0).toLowerCase() + suggested.slice(1)) + '"' : ' title="Not suggested: it saves under 300 MB or a quarter of its size, or already has another version"') + '>' + (tested ? icon('check', 13) : 'about ') + escapeHtml(formatBytes(saving))
+                    return '<div class="dm-sv' + (suggested ? '' : ' dm-minor') + '"' + (suggested ? ' title="' + escapeHtml(suggested === true ? 'Suggested: worth re-encoding' : 'Suggested: ' + suggested.charAt(0).toLowerCase() + suggested.slice(1)) + '"' : ' title="' + escapeHtml(notSuggestedText()) + '"') + '>' + (tested ? icon('check', 13) : 'about ') + escapeHtml(formatBytes(saving))
                         + '<small>' + (note ? escapeHtml(note) : Math.round(saving / size * 100) + '%' + (tested ? ', from a test encode' : ', rough')) + '</small></div>';
                 }
 
@@ -2577,9 +2588,19 @@
                 }
 
                 // Both windows share these choices and start on keeping everything, so neither inherits what the other removed.
+                // ... or on what the settings say to start on.
                 function keepAllTracks() {
-                    $('#dmAudio').value = 'KeepAll';
-                    $('#dmSubtitles').value = 'KeepAll';
+                    var c = pluginConfig || {};
+                    $('#dmAudio').value = c.DefaultAudio === 'KeepLanguages' ? 'KeepLanguages' : 'KeepAll';
+                    $('#dmSubtitles').value = ['KeepLanguages', 'KeepForced', 'RemoveAll'].indexOf(c.DefaultSubtitles) >= 0 ? c.DefaultSubtitles : 'KeepAll';
+                    $('#dmAudioFormat').value = ['Eac3', 'Aac', 'Opus'].indexOf(c.DefaultAudioFormat) >= 0 ? c.DefaultAudioFormat : 'Keep';
+                    $('#dmStereo').checked = !!c.DefaultStereo;
+                }
+
+                // The languages the windows start ticked: the settings' own, or the user's and the server's.
+                function startingLanguages(estimate) {
+                    var chosen = (pluginConfig && pluginConfig.DefaultLanguages || '').split(',').map(function (c) { return c.trim().toLowerCase(); }).filter(Boolean);
+                    return chosen.length ? chosen : (estimate.SuggestedLanguages || []);
                 }
 
                 function resetTracks() {
@@ -2708,7 +2729,7 @@
                     var languages = estimate && estimate.Languages ? estimate.Languages : [];
                     if (!languageChoice && estimate && estimate.Languages) {
                         languageChoice = {};
-                        (estimate.SuggestedLanguages || []).forEach(function (code) { languageChoice[code] = true; });
+                        startingLanguages(estimate).forEach(function (code) { languageChoice[code] = true; });
                     }
 
                     // Each language, with its tracks beneath it so single tracks can be kept or removed. Only the
@@ -3340,7 +3361,7 @@
                     var files = selectedFiles();
                     var estimate = totalEstimate();
                     var room = driveRoom(files, (estimate ? estimate.OutputBytes * 1.2 : estimatedOutputBytes(files, currentCodec())));
-                    var needed = room.needed + 1024 * 1024 * 1024;
+                    var needed = room.needed + keepFree();
                     var free = room.free;
                     var enoughSpace = free < 0 || free >= needed;
                     var current = page.querySelector('input[name="dmMode"]:checked');
@@ -3388,7 +3409,9 @@
                             warnings.push(plural(cpuDecoded.length, 'file') + ' will be decoded on the CPU, as Jellyfin isn\'t set to decode ' + (cpuDecoded.length === 1 ? 'its' : 'their') + ' format on the GPU. That can be several times slower than the GPU encodes. Turn hardware decoding on in Jellyfin, under Dashboard, Playback, Transcoding.');
                         }
                     }
-                    if (option && !option.IsHardware) {
+                    if (option && !option.IsHardware && pluginConfig && pluginConfig.NeverEncodeOnCpu) {
+                        warnings.push('This server has no GPU encoder for ' + codecLabel(codec.toLowerCase()) + ', and encoding on the CPU is switched off in the settings, so these won\'t start.');
+                    } else if (option && !option.IsHardware) {
                         var time = currentTime();
                         var basis = { Tested: 'from test encodes of a calm, a typical and a busy scene', Encoded: 'based on your last encode with these settings', Running: 'based on the encode running now' }[time && time.SpeedSource];
                         warnings.push(time && time.Seconds != null
@@ -4636,7 +4659,7 @@
                             : resultHtml(estimate.SourceBytes, estimate.OutputBytes, null);
                     var mode = checkedValue('dmRemuxMode', 'KeepBoth');
                     var room = driveRoom(selectedFiles(), estimate.OutputBytes * 1.05);
-                    $('#dmRemuxWarning').innerHTML = mode === 'KeepBoth' && room.free >= 0 && room.free < room.needed + 1024 * 1024 * 1024
+                    $('#dmRemuxWarning').innerHTML = mode === 'KeepBoth' && room.free >= 0 && room.free < room.needed + keepFree()
                         ? '<li>There may not be room to keep both: about ' + escapeHtml(formatBytes(room.needed)) + ' is needed and ' + escapeHtml(formatBytes(room.free)) + ' is free'
                             + (room.drive && (summary.Drives || []).length > 1 ? ' on ' + escapeHtml(driveLabel(room.drive)) : '') + '.</li>'
                         : '';
@@ -6269,7 +6292,10 @@
                 });
 
                 page.addEventListener('pageshow', function () {
-                    ApiClient.getPluginConfiguration(pluginId).then(applySectionStarts, function () { /* the remembered state stands */ });
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        pluginConfig = config;
+                        applySectionStarts(config);
+                    }, function () { /* the remembered state stands */ });
                     applyTheme();
                     load();
                     pollScan(false);

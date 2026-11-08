@@ -353,6 +353,9 @@ public class EncodeJob
     /// <summary>Gets or sets a value indicating whether the job only removes tracks, copying the video as it is.</summary>
     public bool IsRemux { get; set; }
 
+    /// <summary>Gets or sets where the replaced original went in the recycle folder, or null if it was deleted or kept.</summary>
+    public string? RecycledPath { get; set; }
+
     /// <summary>Gets or sets what lossless and DTS audio tracks are converted to.</summary>
     public AudioFormat AudioFormat { get; set; }
 

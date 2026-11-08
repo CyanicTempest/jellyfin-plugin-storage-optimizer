@@ -53,6 +53,15 @@ public class StorageSummary
     /// <summary>Gets or sets the total size in bytes of the drives the overview shows, or -1 if unknown.</summary>
     public long DriveTotalBytes { get; set; } = -1;
 
+    /// <summary>Gets or sets how much is always left free on a drive, in bytes, from the settings.</summary>
+    public long KeepFreeBytes { get; set; } = 1024L * 1024 * 1024;
+
+    /// <summary>Gets or sets the least a suggestion must save, in bytes, from the settings.</summary>
+    public long SuggestMinimumBytes { get; set; }
+
+    /// <summary>Gets or sets the least share of its size a suggestion must save, from the settings.</summary>
+    public double SuggestMinimumShare { get; set; }
+
     /// <summary>Gets the size per library.</summary>
     public IList<StorageGroup> Libraries { get; init; } = [];
 

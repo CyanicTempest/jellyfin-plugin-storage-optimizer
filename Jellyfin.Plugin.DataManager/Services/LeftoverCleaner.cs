@@ -40,7 +40,7 @@ public sealed class LeftoverCleaner
     // Folders NAS systems and Jellyfin keep for themselves, which never hold media.
     private static readonly HashSet<string> _skippedFolders = new(StringComparer.OrdinalIgnoreCase)
     {
-        "@eaDir", "eaDir", "#recycle", "@Recycle", ".snapshot", ".snapshots", "lost+found", ".@__thumb", "metadata"
+        "@eaDir", "eaDir", "#recycle", "@Recycle", ".snapshot", ".snapshots", "lost+found", ".@__thumb", "metadata", RecycleBin.FolderName
     };
 
     private readonly ILibraryManager _libraryManager;

@@ -53,6 +53,9 @@ public class SummaryBuilder
         summary.GeneratedAt = report.GeneratedAt;
         summary.TotalBytes = report.TotalBytes;
         summary.FileCount = report.FileCount;
+        summary.KeepFreeBytes = Math.Max(0, Plugin.Instance?.Configuration.KeepFreeGigabytes ?? 1) * 1024L * 1024 * 1024;
+        summary.SuggestMinimumBytes = SuggestionRules.MinimumSavingsBytes;
+        summary.SuggestMinimumShare = SuggestionRules.MinimumSavingsShare;
         AddDrives(summary, files);
 
         AddRange(summary.Libraries, Group(files, f => f.Library));

@@ -58,6 +58,12 @@
             #DataManagerConfigPage .dm-srow-tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
             #DataManagerConfigPage .dm-srow-tx b { font-size: 14px; font-weight: 500; }
             #DataManagerConfigPage .dm-srow-tx span { font-size: 12.5px; color: var(--dm-ink-2); line-height: 1.45; max-width: 64ch; }
+            #DataManagerConfigPage .dm-infoln a { color: var(--dm-tint-ink); text-underline-offset: 2px; }
+            #DataManagerConfigPage .dm-num { display: flex; align-items: center; gap: 8px; flex: none; font-size: 13px; color: var(--dm-ink-2); white-space: nowrap; }
+            #DataManagerConfigPage .dm-num .dm-text { width: 96px; text-align: right; font-family: var(--dm-sans); }
+            #DataManagerConfigPage .dm-hours { display: flex; align-items: center; gap: 8px; flex: none; font-size: 13px; color: var(--dm-ink-2); }
+            #DataManagerConfigPage .dm-hours .dm-select { width: auto; font-family: var(--dm-sans); }
+            #DataManagerConfigPage #dmcDefLang { max-width: 420px; font-family: var(--dm-sans); }
             #DataManagerConfigPage .dm-srow.dm-subhead { padding-top: 14px; padding-bottom: 10px; background: var(--dm-deep); }
             #DataManagerConfigPage .dm-infoln { display: flex; gap: 10px; align-items: flex-start; padding: 13px 20px; border-top: 1px solid var(--dm-soft); font-size: 12.5px; line-height: 1.5; color: var(--dm-ink-2); background: var(--dm-deep); }
             #DataManagerConfigPage .dm-infoln .dm-ic { width: 15px; height: 15px; margin-top: 2px; color: var(--dm-ink-3); }
@@ -207,6 +213,14 @@
                         <div class="dm-srow-tx"><b id="dmcKeepFramesLabel">Keep frames on the GPU</b><span id="dmcKeepFramesNote"></span></div>
                         <button type="button" id="dmcKeepFrames" class="dm-switch" role="switch" aria-checked="false" aria-labelledby="dmcKeepFramesLabel"></button>
                     </label>
+                    <label class="dm-srow" for="dmcLowPriority">
+                        <div class="dm-srow-tx"><b id="dmcLowPriorityLabel">Run ffmpeg at low priority</b><span>The server stays quick for everything else while an encode runs. Encodes take about as long, unless the server is busy.</span></div>
+                        <button type="button" id="dmcLowPriority" class="dm-switch" role="switch" data-key="LowPriority" aria-checked="false" aria-labelledby="dmcLowPriorityLabel"></button>
+                    </label>
+                    <label class="dm-srow" for="dmcNoCpu">
+                        <div class="dm-srow-tx"><b id="dmcNoCpuLabel">Never encode on the CPU</b><span>Only encode on the GPU. Without a GPU encoder for the codec, encodes don&#39;t start.</span></div>
+                        <button type="button" id="dmcNoCpu" class="dm-switch" role="switch" data-key="NeverEncodeOnCpu" aria-checked="false" aria-labelledby="dmcNoCpuLabel"></button>
+                    </label>
                     <div class="dm-infoln dm-hidden" id="dmcGpuNote"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p></p></div>
                 </section>
 
@@ -227,6 +241,23 @@
                     <div class="dm-now" id="dmcNow" role="status"><i></i><span>Checking who is watching.</span></div>
                 </section>
 
+
+                <section class="dm-card" aria-labelledby="dmcHoursTitle">
+                    <div class="dm-sh dm-tight"><h2 id="dmcHoursTitle" class="dm-h2">When encodes run</h2></div>
+                    <label class="dm-srow" for="dmcLimitHours">
+                        <div class="dm-srow-tx"><b id="dmcLimitHoursLabel">Only start encodes between set hours</b><span>Outside them the queue waits. An encode already going finishes.</span></div>
+                        <button type="button" id="dmcLimitHours" class="dm-switch" role="switch" data-key="LimitEncodingHours" aria-checked="false" aria-labelledby="dmcLimitHoursLabel"></button>
+                    </label>
+                    <div class="dm-srow" id="dmcHoursRow">
+                        <div class="dm-srow-tx"><b id="dmcHoursLabel">Hours</b><span id="dmcHoursNote">In the server&#39;s time.</span></div>
+                        <div class="dm-hours" role="group" aria-labelledby="dmcHoursLabel">
+                            <select id="dmcFromHour" class="dm-text dm-select" data-num="EncodeFromHour" aria-label="From"></select>
+                            <span>to</span>
+                            <select id="dmcUntilHour" class="dm-text dm-select" data-num="EncodeUntilHour" aria-label="Until"></select>
+                        </div>
+                    </div>
+                    <div class="dm-infoln"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>The storage scan and the other checks run as Jellyfin scheduled tasks. Change when they run in <a id="dmcTasksLink" href="#/dashboard/tasks">Scheduled tasks</a>.</p></div>
+                </section>
 
                 <section class="dm-card" aria-labelledby="dmcDefaultsTitle">
                     <div class="dm-sh dm-tight">
@@ -249,7 +280,47 @@
                         <div class="dm-srow-tx"><b id="dmcOriginalLabel">Original file</b><span>Keep both adds the new file as another version. If there is not room for both, the window asks you to choose.</span></div>
                         <div class="dm-seg" role="radiogroup" aria-labelledby="dmcOriginalLabel" data-key="KeepOriginalWhenSpaceAllows" style="--dm-cols: 2"></div>
                     </div>
+                    <div class="dm-srow dm-stackrow">
+                        <div class="dm-srow-tx"><b id="dmcDefAudioLabel">Audio</b><span>Which audio tracks the re-encode and remove-tracks windows start on.</span></div>
+                        <div class="dm-seg" role="radiogroup" aria-labelledby="dmcDefAudioLabel" data-key="DefaultAudio" style="--dm-cols: 2"></div>
+                    </div>
+                    <div class="dm-srow dm-stackrow">
+                        <div class="dm-srow-tx"><b id="dmcDefSubsLabel">Subtitles</b><span>Which subtitle tracks inside the file they start on.</span></div>
+                        <div class="dm-seg" role="radiogroup" aria-labelledby="dmcDefSubsLabel" data-key="DefaultSubtitles" style="--dm-cols: 2"></div>
+                    </div>
+                    <div class="dm-srow dm-stackrow" id="dmcLangRow">
+                        <div class="dm-srow-tx"><b id="dmcDefLangLabel">Languages to keep</b><span id="dmcDefLangNote">Names or codes, separated by commas, such as English, Japanese. Leave it empty to start on your own audio language and the server&#39;s.</span></div>
+                        <input type="text" id="dmcDefLang" class="dm-text" spellcheck="false" autocomplete="off" aria-labelledby="dmcDefLangLabel" />
+                    </div>
+                    <div class="dm-srow dm-stackrow">
+                        <div class="dm-srow-tx"><b id="dmcDefFormatLabel">Lossless audio</b><span>What lossless and DTS tracks start on being converted to.</span></div>
+                        <div class="dm-seg" role="radiogroup" aria-labelledby="dmcDefFormatLabel" data-key="DefaultAudioFormat" style="--dm-cols: 2"></div>
+                    </div>
+                    <label class="dm-srow" for="dmcDefStereo">
+                        <div class="dm-srow-tx"><b id="dmcDefStereoLabel">Mix surround audio down to stereo</b><span>What the stereo choice starts on.</span></div>
+                        <button type="button" id="dmcDefStereo" class="dm-switch" role="switch" data-key="DefaultStereo" aria-checked="false" aria-labelledby="dmcDefStereoLabel"></button>
+                    </label>
                     <div class="dm-infoln"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>These only set what the re-encode window starts on. You can change any of them for each run there.</p></div>
+                </section>
+
+                <section class="dm-card" aria-labelledby="dmcSpaceTitle">
+                    <div class="dm-sh dm-tight"><h2 id="dmcSpaceTitle" class="dm-h2">Space and suggestions</h2></div>
+                    <div class="dm-srow dm-stackrow">
+                        <div class="dm-srow-tx"><b id="dmcRecycleLabel">When a re-encode replaces the original</b><span id="dmcRecycleNote">Kept originals go into a hidden .storage-optimizer-recycle folder beside them, on the same drive, and are deleted after the days chosen. They take space until then.</span></div>
+                        <div class="dm-seg" role="radiogroup" aria-labelledby="dmcRecycleLabel" data-key="RecycleDays" style="--dm-cols: 3"></div>
+                    </div>
+                    <div class="dm-srow">
+                        <div class="dm-srow-tx"><b id="dmcKeepFreeLabel">Always keep at least</b><span>An encode that would leave less free on its drive doesn&#39;t start. Encodes also leave a fifth more room than they expect to need.</span></div>
+                        <div class="dm-num"><input type="number" id="dmcKeepFree" class="dm-text" data-num="KeepFreeGigabytes" min="0" max="10000" step="1" inputmode="numeric" aria-labelledby="dmcKeepFreeLabel" /><span>GB free</span></div>
+                    </div>
+                    <div class="dm-srow">
+                        <div class="dm-srow-tx"><b id="dmcSuggestMbLabel">Suggest files that save at least</b><span>The least a file must save to be suggested for re-encoding. A show counts as a whole.</span></div>
+                        <div class="dm-num"><input type="number" id="dmcSuggestMb" class="dm-text" data-num="SuggestMinimumMegabytes" min="0" max="100000" step="1" inputmode="numeric" aria-labelledby="dmcSuggestMbLabel" /><span>MB</span></div>
+                    </div>
+                    <div class="dm-srow">
+                        <div class="dm-srow-tx"><b id="dmcSuggestPercentLabel">and at least</b><span>The least share of its size a file must save to be suggested.</span></div>
+                        <div class="dm-num"><input type="number" id="dmcSuggestPercent" class="dm-text" data-num="SuggestMinimumPercent" min="0" max="100" step="1" inputmode="numeric" aria-labelledby="dmcSuggestPercentLabel" /><span>% of its size</span></div>
+                    </div>
                 </section>
 
                 <section class="dm-card" aria-labelledby="dmcDetailsTitle">
@@ -457,7 +528,18 @@
                 names.KeepOriginalWords = 'Keep original language words';
                 names.KeepOtherTitleText = 'Keep other words';
                 names.SetTrackLanguageAndFlags = 'Set the language and flags';
-                var switchKeys = ['KeepCommentaryWords', 'KeepAudioDescriptionWords', 'KeepOriginalWords', 'KeepOtherTitleText', 'SetTrackLanguageAndFlags', 'CheckHdrBrightness', 'CheckFilesWhenQueued', 'DeinterlaceWhenEncoding', 'CopyHdrBrightness', 'RebuildTimestamps'];
+                keys.push('LowPriority', 'NeverEncodeOnCpu', 'LimitEncodingHours', 'EncodeFromHour', 'EncodeUntilHour', 'DefaultAudio', 'DefaultSubtitles', 'DefaultLanguages', 'DefaultAudioFormat', 'DefaultStereo', 'RecycleDays', 'KeepFreeGigabytes', 'SuggestMinimumMegabytes', 'SuggestMinimumPercent');
+                choices.DefaultAudio = [['KeepAll', 'Keep every language'], ['KeepLanguages', 'Keep the languages below']];
+                choices.DefaultSubtitles = [['KeepAll', 'Keep all'], ['KeepLanguages', 'Keep the languages below'], ['KeepForced', 'Keep only forced'], ['RemoveAll', 'Remove all']];
+                choices.DefaultAudioFormat = [['Keep', 'Keep as it is'], ['Eac3', 'Dolby Digital Plus'], ['Aac', 'AAC'], ['Opus', 'Opus']];
+                choices.RecycleDays = [[0, 'Delete it'], [7, 'Keep it 7 days'], [30, 'Keep it 30 days']];
+                Object.assign(names, {
+                    LowPriority: 'Low priority', NeverEncodeOnCpu: 'Never encode on the CPU', LimitEncodingHours: 'Only between set hours', EncodeFromHour: 'Encoding from', EncodeUntilHour: 'Encoding until',
+                    DefaultAudio: 'Default audio', DefaultSubtitles: 'Default subtitles', DefaultLanguages: 'Languages to keep', DefaultAudioFormat: 'Lossless audio', DefaultStereo: 'Mix down to stereo',
+                    RecycleDays: 'Replaced originals', KeepFreeGigabytes: 'Always keep free', SuggestMinimumMegabytes: 'Suggest from', SuggestMinimumPercent: 'Suggest from a share of'
+                });
+                var numKeys = { EncodeFromHour: [0, 23], EncodeUntilHour: [0, 23], KeepFreeGigabytes: [0, 10000], SuggestMinimumMegabytes: [0, 100000], SuggestMinimumPercent: [0, 100] };
+                var switchKeys = ['LowPriority', 'NeverEncodeOnCpu', 'LimitEncodingHours', 'DefaultStereo', 'KeepCommentaryWords', 'KeepAudioDescriptionWords', 'KeepOriginalWords', 'KeepOtherTitleText', 'SetTrackLanguageAndFlags', 'CheckHdrBrightness', 'CheckFilesWhenQueued', 'DeinterlaceWhenEncoding', 'CopyHdrBrightness', 'RebuildTimestamps'];
                 keys.push('CheckHdrBrightness', 'CheckFilesWhenQueued', 'DeinterlaceWhenEncoding', 'CopyHdrBrightness', 'RebuildTimestamps', 'HiddenIssueTags');
                 names.CheckHdrBrightness = 'HDR brightness check';
                 names.CheckFilesWhenQueued = 'Read files before encoding';
@@ -585,6 +667,57 @@
                         var out = r[1] === null ? r[0] : r[1];
                         return '<div><span>' + escapeHtml(r[0]) + '</span><code>' + (out ? escapeHtml(out) : '<span class="dm-keeps">(no title)</span>') + '</code></div>';
                     }).join('');
+                }
+
+                function numberOr(value, fallback) { return value === undefined || value === null || isNaN(+value) ? fallback : +value; }
+
+                function hourName(h) { return h === 0 ? 'midnight' : h === 12 ? 'midday' : h < 12 ? h + ' am' : (h - 12) + ' pm'; }
+
+                // Jellyfin's languages, to turn the names typed into codes the windows match tracks by.
+                var languageList = null;
+                function loadLanguages() {
+                    if (languageList) { return Promise.resolve(languageList); }
+                    return ApiClient.getCultures().then(function (list) { languageList = list || []; return languageList; }, function () { languageList = []; return languageList; });
+                }
+
+                // Saved codes shown as names, such as "eng,jpn" as "English, Japanese".
+                function languageNames(codes) {
+                    if (!languageList || !codes) { return codes; }
+                    return codes.split(',').map(function (code) {
+                        var hit = languageList.filter(function (c) { return c.ThreeLetterISOLanguageName === code.trim(); })[0];
+                        return hit ? (hit.DisplayName || hit.Name).split(';')[0] : code.trim();
+                    }).join(', ');
+                }
+
+                function languageCodes(text) {
+                    var found = [], unknown = [];
+                    String(text || '').split(',').map(function (t) { return t.trim(); }).filter(Boolean).forEach(function (t) {
+                        var low = t.toLowerCase();
+                        var hit = (languageList || []).filter(function (c) {
+                            return [c.DisplayName, c.Name, c.ThreeLetterISOLanguageName, c.TwoLetterISOLanguageName].concat(c.ThreeLetterISOLanguageNames || [])
+                                .some(function (n) { return n && (String(n).toLowerCase() === low || String(n).toLowerCase().split(';')[0].trim() === low); });
+                        })[0];
+                        if (hit) { if (found.indexOf(hit.ThreeLetterISOLanguageName) < 0) { found.push(hit.ThreeLetterISOLanguageName); } } else { unknown.push(t); }
+                    });
+                    return { codes: found, unknown: unknown };
+                }
+
+                function renderMore() {
+                    page.querySelectorAll('[data-num]').forEach(function (input) {
+                        var k = input.dataset.num;
+                        if (document.activeElement !== input && String(input.value) !== String(current[k])) { input.value = current[k]; }
+                    });
+                    $('#dmcHoursRow').classList.toggle('dm-hidden', !current.LimitEncodingHours);
+                    var languagesUsed = current.DefaultAudio === 'KeepLanguages' || current.DefaultSubtitles === 'KeepLanguages' || current.DefaultSubtitles === 'KeepForced';
+                    $('#dmcLangRow').classList.toggle('dm-hidden', !languagesUsed);
+                    if (document.activeElement !== $('#dmcDefLang') && $('#dmcDefLang').value !== current.DefaultLanguages) { $('#dmcDefLang').value = current.DefaultLanguages; }
+                    var parsed = languageCodes(current.DefaultLanguages);
+                    $('#dmcDefLangNote').textContent = parsed.unknown.length
+                        ? 'Not a language Jellyfin knows: ' + parsed.unknown.join(', ') + '. Use names or codes, such as English or jpn.'
+                        : 'Names or codes, separated by commas, such as English, Japanese. Leave it empty to start on your own audio language and the server\'s.';
+                    $('#dmcRecycleNote').textContent = current.RecycleDays
+                        ? 'The original goes into a hidden .storage-optimizer-recycle folder beside it, on the same drive, and is deleted after ' + current.RecycleDays + ' days. It takes space until then.'
+                        : 'The original is deleted once the new file is checked and in place.';
                 }
 
                 function loadDrives() {
@@ -743,6 +876,11 @@
                     }
                     if (key === 'WriteMetadata' || key === 'OnlyCountVideoTranscodes' || key === 'KeepFramesOnGpu' || switchKeys.indexOf(key) >= 0) { return value ? 'On' : 'Off'; }
                     if (key === 'EncodesAtOnce') { return value ? String(value) : 'Recommended'; }
+                    if (key === 'EncodeFromHour' || key === 'EncodeUntilHour') { return hourName(value); }
+                    if (key === 'KeepFreeGigabytes') { return value + ' GB'; }
+                    if (key === 'SuggestMinimumMegabytes') { return value + ' MB'; }
+                    if (key === 'SuggestMinimumPercent') { return value + '%'; }
+                    if (key === 'DefaultLanguages') { return value ? '"' + value + '"' : 'Your own'; }
                     if (key === 'HiddenIssueTags') { return value ? plural(value.split('\n').length, 'tag') + ' off' : 'All on'; }
                     if (key === 'HiddenDrives') { return value ? plural(value.split('\n').length, 'drive') + ' hidden' : 'All shown'; }
                     return '"' + value + '"';
@@ -891,6 +1029,7 @@
                     renderKeepFrames();
                     renderDrives();
                     renderTitles();
+                    renderMore();
                     renderDock();
                 }
 
@@ -1032,6 +1171,8 @@
                     // Start from what the server has now, so settings this page doesn't show are left as they are.
                     return ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
                         keys.forEach(function (k) { config[k] = k === 'HiddenDrives' || k === 'HiddenIssueTags' ? (current[k] ? current[k].split('\n') : []) : normal(k, current[k]); });
+                        // The windows match tracks by code, so the names typed are saved as codes, and the field shows them as names.
+                        config.DefaultLanguages = languageCodes(current.DefaultLanguages).codes.join(',');
                         return ApiClient.updatePluginConfiguration(pluginUniqueId, config);
                     }).then(function (result) {
                         keys.forEach(function (k) { current[k] = normal(k, current[k]); });
@@ -1082,7 +1223,21 @@
                         DeinterlaceWhenEncoding: config.DeinterlaceWhenEncoding !== false,
                         CopyHdrBrightness: config.CopyHdrBrightness !== false,
                         RebuildTimestamps: config.RebuildTimestamps !== false,
-                        HiddenIssueTags: (config.HiddenIssueTags || []).slice().sort().join('\n')
+                        HiddenIssueTags: (config.HiddenIssueTags || []).slice().sort().join('\n'),
+                        LowPriority: config.LowPriority !== false,
+                        NeverEncodeOnCpu: !!config.NeverEncodeOnCpu,
+                        LimitEncodingHours: !!config.LimitEncodingHours,
+                        EncodeFromHour: numberOr(config.EncodeFromHour, 1),
+                        EncodeUntilHour: numberOr(config.EncodeUntilHour, 7),
+                        DefaultAudio: config.DefaultAudio || 'KeepAll',
+                        DefaultSubtitles: config.DefaultSubtitles || 'KeepAll',
+                        DefaultLanguages: languageNames(config.DefaultLanguages || ''),
+                        DefaultAudioFormat: config.DefaultAudioFormat || 'Keep',
+                        DefaultStereo: !!config.DefaultStereo,
+                        RecycleDays: [0, 7, 30].indexOf(+config.RecycleDays) >= 0 ? +config.RecycleDays : 0,
+                        KeepFreeGigabytes: numberOr(config.KeepFreeGigabytes, 1),
+                        SuggestMinimumMegabytes: numberOr(config.SuggestMinimumMegabytes, 300),
+                        SuggestMinimumPercent: numberOr(config.SuggestMinimumPercent, 25)
                     };
                 }
 
@@ -1101,6 +1256,13 @@
                     });
                     loadGpu();
                     loadDrives();
+                    loadLanguages().then(function () {
+                        // Settings that arrived first show their codes as names now, as long as they weren't changed.
+                        if (current && saved && current.DefaultLanguages === saved.DefaultLanguages) {
+                            saved.DefaultLanguages = current.DefaultLanguages = languageNames(saved.DefaultLanguages);
+                            render();
+                        }
+                    });
                     loadStatus();
                     clearInterval(statusTimer);
                     statusTimer = setInterval(loadStatus, 5000);
@@ -1124,6 +1286,25 @@
                 $('#dmcAtOnceUp').addEventListener('click', function () { step(1); });
                 $('#dmcVideoOnly').addEventListener('click', function () { pick('OnlyCountVideoTranscodes', !current.OnlyCountVideoTranscodes); });
                 $('#dmcKeepFrames').addEventListener('click', function () { pick('KeepFramesOnGpu', !current.KeepFramesOnGpu); });
+                // Hours run in whole hours, from midnight to 11 pm.
+                ['#dmcFromHour', '#dmcUntilHour'].forEach(function (id) {
+                    var list = [];
+                    for (var h = 0; h < 24; h++) { list.push('<option value="' + h + '">' + hourName(h) + '</option>'); }
+                    $(id).innerHTML = list.join('');
+                });
+                page.querySelectorAll('[data-num]').forEach(function (input) {
+                    input.addEventListener(input.tagName === 'SELECT' ? 'change' : 'input', function () {
+                        var k = input.dataset.num;
+                        var range = numKeys[k];
+                        var v = Math.round(+input.value);
+                        if (input.value === '' || isNaN(v)) { return; }
+                        current[k] = Math.max(range[0], Math.min(range[1], v));
+                        renderDock();
+                        renderMore();
+                    });
+                    input.addEventListener('blur', function () { renderMore(); });
+                });
+                $('#dmcDefLang').addEventListener('input', function () { current.DefaultLanguages = this.value; renderDock(); renderMore(); });
                 switchKeys.forEach(function (k) {
                     page.querySelector('.dm-switch[data-key="' + k + '"]').addEventListener('click', function () { pick(k, !current[k]); });
                 });

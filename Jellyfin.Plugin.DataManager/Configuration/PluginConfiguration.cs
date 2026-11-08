@@ -90,6 +90,54 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool KeepFramesOnGpu { get; set; }
 
     /// <summary>
+    /// Gets or sets how many days an original that a re-encode replaced is kept in a hidden recycle folder beside it
+    /// before it's deleted, or 0 to delete it straight away.
+    /// </summary>
+    public int RecycleDays { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether encodes only start between <see cref="EncodeFromHour"/> and <see cref="EncodeUntilHour"/>.</summary>
+    public bool LimitEncodingHours { get; set; }
+
+    /// <summary>Gets or sets the hour, 0 to 23 in the server's time, from which encodes may start.</summary>
+    public int EncodeFromHour { get; set; } = 1;
+
+    /// <summary>Gets or sets the hour, 0 to 23 in the server's time, after which no more encodes start. Ones running finish.</summary>
+    public int EncodeUntilHour { get; set; } = 7;
+
+    /// <summary>Gets or sets a value indicating whether ffmpeg runs at low priority, so the server stays responsive.</summary>
+    public bool LowPriority { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether encodes may only run on the GPU, never on the CPU.</summary>
+    public bool NeverEncodeOnCpu { get; set; }
+
+    /// <summary>Gets or sets which audio the re-encode and remux windows start on.</summary>
+    public AudioChoice DefaultAudio { get; set; } = AudioChoice.KeepAll;
+
+    /// <summary>Gets or sets which subtitles the re-encode and remux windows start on.</summary>
+    public SubtitleChoice DefaultSubtitles { get; set; } = SubtitleChoice.KeepAll;
+
+    /// <summary>
+    /// Gets or sets the languages the windows start ticked, as codes separated by commas, such as "eng,jpn". Empty
+    /// starts on the Jellyfin user's own audio language and the server's.
+    /// </summary>
+    public string DefaultLanguages { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets what the windows start converting big audio to.</summary>
+    public AudioFormat DefaultAudioFormat { get; set; } = AudioFormat.Keep;
+
+    /// <summary>Gets or sets a value indicating whether the windows start on mixing surround audio down to stereo.</summary>
+    public bool DefaultStereo { get; set; }
+
+    /// <summary>Gets or sets how many gigabytes are always left free on a drive: an encode that would leave less doesn't start.</summary>
+    public int KeepFreeGigabytes { get; set; } = 1;
+
+    /// <summary>Gets or sets the least a file must save, in megabytes, to be suggested.</summary>
+    public int SuggestMinimumMegabytes { get; set; } = 300;
+
+    /// <summary>Gets or sets the least share of its size, in percent, a file must save to be suggested.</summary>
+    public int SuggestMinimumPercent { get; set; } = 25;
+
+    /// <summary>
     /// Gets or sets what re-encodes and remuxes do with audio track titles. They're tidied unless this is changed.
     /// </summary>
     public TrackTitleMode AudioTitles { get; set; } = TrackTitleMode.Clear;

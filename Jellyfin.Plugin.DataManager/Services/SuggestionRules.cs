@@ -11,11 +11,16 @@ namespace Jellyfin.Plugin.DataManager.Services;
 /// </summary>
 public static class SuggestionRules
 {
-    /// <summary>The least a suggestion must save, in bytes.</summary>
-    public const long MinimumSavingsBytes = 300L * 1024 * 1024;
+    /// <summary>Gets the least a suggestion must save, in bytes, from the settings.</summary>
+    public static long MinimumSavingsBytes => Math.Max(0, Plugin.Instance?.Configuration.SuggestMinimumMegabytes ?? 300) * 1024L * 1024;
 
-    /// <summary>The least share of its size a suggestion must save.</summary>
-    public const double MinimumSavingsShare = 0.25;
+    /// <summary>Gets the least share of its size a suggestion must save, from the settings.</summary>
+    public static double MinimumSavingsShare => Math.Clamp(Plugin.Instance?.Configuration.SuggestMinimumPercent ?? 25, 0, 100) / 100.0;
+
+    // Such as "300 MB" or "1 GB".
+    private static string Amount(long bytes) => bytes >= 1024L * 1024 * 1024 && bytes % (1024L * 1024 * 1024) == 0
+        ? (bytes / (1024L * 1024 * 1024)).ToString(System.Globalization.CultureInfo.InvariantCulture) + " GB"
+        : (bytes / (1024 * 1024)).ToString(System.Globalization.CultureInfo.InvariantCulture) + " MB";
 
     /// <summary>
     /// Marks the files worth suggesting. A file qualifies on its own, and an episode also qualifies when its whole
@@ -36,7 +41,7 @@ public static class SuggestionRules
             if (file.OtherVersionIds.Count == 0 && WorthIt(file.EstimatedSavingsBytes, file.SizeBytes))
             {
                 file.IsRecommended = true;
-                file.SuggestedReason = "Saves over 300 MB";
+                file.SuggestedReason = "Saves over " + Amount(MinimumSavingsBytes);
             }
         }
 
@@ -54,7 +59,7 @@ public static class SuggestionRules
             foreach (var episode in show.Where(e => e.EstimatedSavingsBytes >= e.SizeBytes * MinimumSavingsShare))
             {
                 episode.IsRecommended = true;
-                episode.SuggestedReason = "Saves over 300 MB across the show";
+                episode.SuggestedReason = "Saves over " + Amount(MinimumSavingsBytes) + " across the show";
             }
         }
     }

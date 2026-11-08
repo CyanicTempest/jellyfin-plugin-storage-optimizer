@@ -35,7 +35,8 @@ public sealed class EncodeService : IDisposable
     private const string PartialMarker = ".datamanager-partial.";
 
     // Room left on the drive after an encode, so the library never fills the disk completely.
-    private const long SafetyMarginBytes = 1L * 1024 * 1024 * 1024;
+    // How much is always left free on a drive, from the settings.
+    private static long SafetyMarginBytes => Math.Max(0, Plugin.Instance?.Configuration.KeepFreeGigabytes ?? 1) * 1024L * 1024 * 1024;
 
     // A new file has to be at least this much smaller to be worth the little re-encoding loses. One that isn't is
     // held back until the user chooses what to do; the page doesn't offer settings expected to miss it.
@@ -69,6 +70,7 @@ public sealed class EncodeService : IDisposable
     private readonly ViewerMonitor _viewers;
     private readonly GpuDetector _gpu;
     private readonly SemaphoreSlim _signal = new(0);
+    private DateTime _lastRecycleSweep = DateTime.MinValue;
     private readonly List<EncodeJob> _jobs = [];
     private readonly Lock _jobsLock = new();
     private readonly Lock _viewerLock = new();
@@ -1149,9 +1151,55 @@ public sealed class EncodeService : IDisposable
         return new EncodeStatus(slots, allowed, running, paused, queued, config.WhenWatching, streams, summary);
     }
 
+    /// <summary>
+    /// Gets whether encodes may start now, by the hours set.
+    /// </summary>
+    /// <param name="config">The settings.</param>
+    /// <param name="now">The server's time now.</param>
+    /// <returns>Null when they may, or a message saying when they will.</returns>
+    internal static string? OutsideHours(PluginConfiguration config, DateTime now)
+    {
+        if (!config.LimitEncodingHours)
+        {
+            return null;
+        }
+
+        var from = Math.Clamp(config.EncodeFromHour, 0, 23);
+        var until = Math.Clamp(config.EncodeUntilHour, 0, 23);
+        if (from == until)
+        {
+            return null;
+        }
+
+        // Hours can run past midnight, such as 10 pm to 6 am.
+        var hour = now.Hour;
+        var inside = from < until ? hour >= from && hour < until : hour >= from || hour < until;
+        return inside ? null : "Waiting until " + HourName(from) + ", when encoding is set to start.";
+    }
+
+    private static string HourName(int hour) => hour switch
+    {
+        0 => "midnight",
+        12 => "midday",
+        < 12 => hour.ToString(CultureInfo.InvariantCulture) + " am",
+        _ => (hour - 12).ToString(CultureInfo.InvariantCulture) + " pm"
+    };
+
     private async Task DispatchAsync(CancellationToken shutdown)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+
+        // Originals kept long enough are deleted, about once an hour.
+        if (DateTime.UtcNow - _lastRecycleSweep > TimeSpan.FromHours(1))
+        {
+            _lastRecycleSweep = DateTime.UtcNow;
+            var gone = RecycleBin.Empty(DateTime.UtcNow);
+            if (gone > 0)
+            {
+                _logger.LogInformation("Storage Optimizer deleted {Count} originals kept in the recycle folders", gone);
+            }
+        }
+
         var slots = await SlotsAsync(config, shutdown).ConfigureAwait(false);
         var streams = _viewers.Streams(config.OnlyCountVideoTranscodes);
         var held = HeldStreams(config, streams.Count, true);
@@ -1195,6 +1243,17 @@ public sealed class EncodeService : IDisposable
             {
                 job.Message = PauseMessage(job, streams, held, config);
             }
+        }
+
+        // Outside the hours set, nothing new starts; encodes already going finish.
+        if (queued.Count > 0 && OutsideHours(config, DateTime.Now) is { } until)
+        {
+            foreach (var job in queued)
+            {
+                job.Message = until;
+            }
+
+            queued.Clear();
         }
 
         foreach (var job in queued)
@@ -1350,7 +1409,12 @@ public sealed class EncodeService : IDisposable
             return;
         }
 
-        var encoder = PickEncoder(job.Codec, out _) ?? throw new InvalidOperationException("This server's ffmpeg can't encode " + job.Codec + ".");
+        var encoder = PickEncoder(job.Codec, out var onGpu) ?? throw new InvalidOperationException("This server's ffmpeg can't encode " + job.Codec + ".");
+        if (!onGpu && Plugin.Instance?.Configuration.NeverEncodeOnCpu == true)
+        {
+            throw new InvalidOperationException("Encoding on the CPU is switched off in the settings, and this server has no GPU encoder for " + Label(job.Codec) + ". The original was not changed.");
+        }
+
         job.Encoder = encoder;
 
         var sourceInfo = SourceInfo(item, source);
@@ -1697,6 +1761,24 @@ public sealed class EncodeService : IDisposable
         };
     }
 
+    // ffmpeg runs below normal priority unless the settings say otherwise, so the server stays quick to use.
+    private void LowerPriority(Process process)
+    {
+        if (Plugin.Instance?.Configuration.LowPriority == false)
+        {
+            return;
+        }
+
+        try
+        {
+            process.PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or PlatformNotSupportedException or NotSupportedException)
+        {
+            _logger.LogDebug(ex, "Storage Optimizer couldn't lower ffmpeg's priority");
+        }
+    }
+
     // The first frame's HDR10 brightness information, or null if it has none or can't be read.
     private async Task<HdrBrightness?> ProbeBrightnessAsync(string path, CancellationToken cancellationToken)
     {
@@ -1730,6 +1812,7 @@ public sealed class EncodeService : IDisposable
         var broken = 0;
         using (var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start ffmpeg."))
         {
+            LowerPriority(process);
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             limit.CancelAfter(TimeSpan.FromMinutes(20));
             _ = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
@@ -1875,21 +1958,59 @@ public sealed class EncodeService : IDisposable
             }
 
             // With the same name, the new file takes the original's place in one step. With a new name it's moved in
-            // first, so the original is only deleted once the new file is there. Replace was the user's choice.
+            // first, so the original is only deleted once the new file is there. Replace was the user's choice. With
+            // the recycle folder on, the original is moved there instead, and deleted after the days set.
+            var recycleDays = Math.Max(0, Plugin.Instance?.Configuration.RecycleDays ?? 0);
+            var now = DateTime.UtcNow;
+            string? recycled = null;
+            if (job.Mode == OutputMode.Replace && replaceInPlace && recycleDays > 0)
+            {
+                try
+                {
+                    recycled = RecycleBin.Recycle(source, recycleDays, now);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    throw new InvalidOperationException("The original couldn't be moved to the recycle folder (" + ex.Message + "), so it wasn't changed. The new file is still there, hidden, as " + tempPath + ".", ex);
+                }
+            }
+
             try
             {
                 File.Move(tempPath, finalPath, replaceInPlace);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                if (recycled is not null)
+                {
+                    RecycleBin.Restore(recycled, source);
+                }
+
                 throw new InvalidOperationException("The new file couldn't be moved into place (" + ex.Message + "). It's still there, hidden, as " + tempPath + ", and the original wasn't changed.", ex);
+            }
+
+            if (recycled is not null)
+            {
+                job.RecycledPath = recycled;
             }
 
             if (job.Mode == OutputMode.Replace && !replaceInPlace)
             {
                 try
                 {
-                    File.Delete(source);
+                    if (recycleDays > 0)
+                    {
+                        job.RecycledPath = RecycleBin.Recycle(source, recycleDays, now);
+                        foreach (var sidecar in sidecars)
+                        {
+                            RecycleBin.KeepCopy(sidecar, recycleDays, now);
+                        }
+                    }
+                    else
+                    {
+                        File.Delete(source);
+                    }
+
                     foreach (var sidecar in sidecars)
                     {
                         var renamed = Sidecars.Renamed(sidecar, oldBase, newBase);
@@ -1937,7 +2058,9 @@ public sealed class EncodeService : IDisposable
         }
         else
         {
-            Finish(job, EncodeJobState.Completed, "Replaced the original and " + savedText + "." + (job.TracksNote is null ? string.Empty : " " + job.TracksNote));
+            var kept = job.RecycledPath is null ? string.Empty
+                : " The original is in the hidden " + RecycleBin.FolderName + " folder beside it for " + (Plugin.Instance?.Configuration.RecycleDays ?? 0) + " days.";
+            Finish(job, EncodeJobState.Completed, "Replaced the original and " + savedText + "." + kept + (job.TracksNote is null ? string.Empty : " " + job.TracksNote));
         }
 
         job.IsPlacing = false;
@@ -2147,7 +2270,7 @@ public sealed class EncodeService : IDisposable
         if (free < needed)
         {
             var advice = job.Mode == OutputMode.KeepBoth ? " Try Replace instead, or free up some space." : " Free up some space and try again.";
-            throw new InvalidOperationException("Not enough free space: about " + FormatBytes(needed) + " is needed and " + FormatBytes(free) + " is free." + advice);
+            throw new InvalidOperationException("Not enough free space: about " + FormatBytes(needed) + " is needed, keeping " + FormatBytes(SafetyMarginBytes) + " free as set in the settings, and " + FormatBytes(free) + " is free." + advice);
         }
     }
 
@@ -2374,6 +2497,7 @@ public sealed class EncodeService : IDisposable
         using var process = new Process { StartInfo = startInfo };
         var clock = Stopwatch.StartNew();
         process.Start();
+        LowerPriority(process);
         var handle = new EncodeProcess(process);
         job.Process = handle;
 
