@@ -14,6 +14,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -34,6 +35,7 @@ public class StorageScanner
     private readonly ILibraryManager _libraryManager;
     private readonly EncodeService _encodeService;
     private readonly ReportUpdater _reports;
+    private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<StorageScanner> _logger;
 
     /// <summary>
@@ -42,9 +44,11 @@ public class StorageScanner
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="encodeService">The re-encode queue, which finds files left by interrupted encodes.</param>
     /// <param name="reports">Describes each file.</param>
+    /// <param name="mediaEncoder">Jellyfin's ffmpeg, whose ffprobe reads HDR brightness information.</param>
     /// <param name="logger">The logger.</param>
-    public StorageScanner(ILibraryManager libraryManager, EncodeService encodeService, ReportUpdater reports, ILogger<StorageScanner> logger)
+    public StorageScanner(ILibraryManager libraryManager, EncodeService encodeService, ReportUpdater reports, IMediaEncoder mediaEncoder, ILogger<StorageScanner> logger)
     {
+        _mediaEncoder = mediaEncoder;
         _reports = reports;
         _libraryManager = libraryManager;
         _encodeService = encodeService;
@@ -83,6 +87,8 @@ public class StorageScanner
 
         var report = new StorageReport();
         var seenPaths = new HashSet<string>(StringComparer.Ordinal);
+        var checkHdr = Plugin.Instance?.Configuration.CheckHdrBrightness == true;
+        var hdrToCheck = new List<(BaseItem Item, MediaFileInfo File)>();
 
         for (var i = 0; i < items.Count; i++)
         {
@@ -95,10 +101,32 @@ public class StorageScanner
                 if (file is not null)
                 {
                     report.Files.Add(file);
+                    if (checkHdr && IsHdr10(item) && FileChecks.Get(file.Path, file.SizeBytes)?.HasHdrBrightness is null)
+                    {
+                        hdrToCheck.Add((item, file));
+                    }
                 }
             }
 
-            progress.Report(100.0 * (i + 1) / items.Count);
+            progress.Report((checkHdr ? 90.0 : 100.0) * (i + 1) / items.Count);
+        }
+
+        // HDR10 files not checked before have their first frame read for brightness information, about a second each.
+        for (var i = 0; i < hdrToCheck.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var (_, file) = hdrToCheck[i];
+            var has = await HasBrightnessAsync(file.Path, cancellationToken).ConfigureAwait(false);
+            if (has is { } found)
+            {
+                FileChecks.Update(file.Path, file.SizeBytes, c => c.HasHdrBrightness = found);
+                if (!found && !file.Issues.Contains(FileIssues.HdrNoBrightness))
+                {
+                    file.Issues = file.Issues.Append(FileIssues.HdrNoBrightness).ToList();
+                }
+            }
+
+            progress.Report(90.0 + (10.0 * (i + 1) / hdrToCheck.Count));
         }
 
         // Working files left by interrupted encodes are cleaned up. The videos themselves are never touched here.
@@ -117,6 +145,64 @@ public class StorageScanner
 
         _logger.LogInformation("Storage Optimizer scanned {Count} files totalling {Bytes} bytes", report.FileCount, report.TotalBytes);
         return report;
+    }
+
+    // HDR10 (PQ) carries brightness information; HLG doesn't use it.
+    private static bool IsHdr10(BaseItem item)
+    {
+        var video = item.GetMediaStreams().FirstOrDefault(s => s.Type == MediaStreamType.Video);
+        return video?.VideoRange == VideoRange.HDR && string.Equals(video.ColorTransfer, "smpte2084", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool?> HasBrightnessAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = await FfprobeAsync(_mediaEncoder.ProbePath, ["-v", "error", "-select_streams", "V:0", "-read_intervals", "%+#1", "-show_frames", "-show_entries", "frame=side_data_list", "-of", "json", path], TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            return json is null ? null : FileIssues.ParseBrightness(json) is { MasterDisplay: not null };
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            _logger.LogDebug(ex, "Storage Optimizer couldn't read the HDR brightness of {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Runs ffprobe and returns what it printed, or null if it failed or took too long.
+    /// </summary>
+    /// <param name="probePath">ffprobe.</param>
+    /// <param name="arguments">Its arguments.</param>
+    /// <param name="timeout">How long to wait.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The output, or null.</returns>
+    internal static async Task<string?> FfprobeAsync(string probePath, IEnumerable<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo(probePath)
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var arg in arguments)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        using var process = System.Diagnostics.Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start ffprobe.");
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(timeout);
+        try
+        {
+            var output = await process.StandardOutput.ReadToEndAsync(limit.Token).ConfigureAwait(false);
+            await process.WaitForExitAsync(limit.Token).ConfigureAwait(false);
+            return process.ExitCode == 0 ? output : null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            process.Kill(true);
+            return null;
+        }
     }
 
     /// <summary>

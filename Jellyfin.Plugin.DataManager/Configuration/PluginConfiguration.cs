@@ -118,6 +118,38 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SetTrackLanguageAndFlags { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets the file issue tags the media list leaves out, by name, such as OldContainer. All are shown unless
+    /// switched off.
+    /// </summary>
+#pragma warning disable CA1819 // Jellyfin saves settings as XML, which needs an array here.
+    public string[] HiddenIssueTags { get; set; } = [];
+#pragma warning restore CA1819
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the storage scan reads the first frame of each HDR10 file to see
+    /// whether it has its brightness information. It takes about a second a file, once. Off unless switched on.
+    /// </summary>
+    public bool CheckHdrBrightness { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a file is read through before it's encoded, to find broken timestamps,
+    /// audio out of step with the video and HDR without colour tags. Off unless switched on.
+    /// </summary>
+    public bool CheckFilesWhenQueued { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether interlaced frames are deinterlaced when encoding.</summary>
+    public bool DeinterlaceWhenEncoding { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether HDR10 brightness information is copied into the new file and checked.</summary>
+    public bool CopyHdrBrightness { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether timestamps are rebuilt for AVI, MPEG-TS and WMV files, and files a read
+    /// found broken timestamps in, and the new file's audio is checked to be in step with its video.
+    /// </summary>
+    public bool RebuildTimestamps { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the ids of the drives the overview leaves out. Drives not listed are shown, so a new drive shows up
     /// on its own. Encodes still check a hidden drive's free space.
     /// </summary>

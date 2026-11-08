@@ -88,6 +88,15 @@ public sealed record EncodeExtras(IReadOnlyList<AudioConversion> Audio, bool Ton
     /// <summary>Gets the changes to the kept tracks' titles, languages and flags. Converted tracks with none listed are retitled as before.</summary>
     public IReadOnlyList<TrackRewrite> Rewrites { get; init; } = [];
 
+    /// <summary>Gets a value indicating whether interlaced frames are deinterlaced (bwdif), leaving progressive ones alone.</summary>
+    public bool Deinterlace { get; init; }
+
+    /// <summary>Gets a value indicating whether ffmpeg rebuilds the timestamps as it reads, for files whose timestamps are broken or missing.</summary>
+    public bool RebuildTimestamps { get; init; }
+
+    /// <summary>Gets the original's HDR10 brightness information, which x265 is told to write, or null.</summary>
+    public Services.HdrBrightness? HdrBrightness { get; init; }
+
     /// <summary>Gets extras that change nothing.</summary>
     public static EncodeExtras None { get; } = new([], false, null, null, false);
 }

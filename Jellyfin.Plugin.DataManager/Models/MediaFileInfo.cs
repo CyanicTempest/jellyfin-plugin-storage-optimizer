@@ -123,6 +123,9 @@ public class MediaFileInfo
     /// <summary>Gets or sets the movie's ids on IMDb, TMDB and TVDB, by provider name. Empty for anything else.</summary>
     public IReadOnlyDictionary<string, string> ProviderIds { get; set; } = new Dictionary<string, string>();
 
+    /// <summary>Gets or sets the file's likely problems, as <see cref="Services.FileIssues"/> names them, such as UnknownLanguage.</summary>
+    public IReadOnlyList<string> Issues { get; set; } = [];
+
     /// <summary>Gets or sets a value indicating whether the file is an extra, such as a trailer or behind the scenes.</summary>
     public bool IsExtra { get; set; }
 

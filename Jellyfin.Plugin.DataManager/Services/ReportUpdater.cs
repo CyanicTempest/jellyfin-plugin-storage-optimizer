@@ -206,6 +206,19 @@ public sealed class ReportUpdater
         file.SubtitleTracks = tracks.Count(t => t.Kind == TrackKind.Subtitle);
         file.SubtitleLanguages = Names(TrackKind.Subtitle);
 
+        // Likely problems: what Jellyfin knows, and what reading the file found, if it has been read as it is now.
+        var issues = FileIssues.Find(streams, tracks, source?.Container ?? fileInfo.Extension).ToList();
+        if (FileChecks.Get(fileInfo.FullName, fileInfo.Length) is { } check)
+        {
+            if (check.HasHdrBrightness == false)
+            {
+                issues.Add(FileIssues.HdrNoBrightness);
+            }
+
+            issues.AddRange(check.ReadIssues ?? []);
+        }
+
+        file.Issues = issues.Distinct(StringComparer.Ordinal).ToList();
         file.AudioBitrate = audioBitrate;
         file.EstimatedSavingsBytes = SavingsEstimator.Estimate(file, audioBitrate);
         file.OtherVersionIds = OtherVersions(item);

@@ -46,6 +46,13 @@ public static class FfmpegArguments
         var isMp4 = string.Equals(outputContainer, "mp4", StringComparison.OrdinalIgnoreCase);
         var args = new List<string> { "-hide_banner", "-nostdin", "-y" };
         args.AddRange(hardware ?? []);
+
+        // Older containers often have timestamps missing or out of order, which ffmpeg can rebuild as it reads.
+        if (extras.RebuildTimestamps)
+        {
+            args.AddRange(["-fflags", "+genpts"]);
+        }
+
         args.AddRange(["-i", inputPath]);
 
         // The tags come from a second input; an mp4's cover art from a third, as a picture stream.
@@ -94,7 +101,7 @@ public static class FfmpegArguments
         }
 
         var copy = encoder == CopyVideo;
-        args.AddRange(copy ? ["-c:v:0", "copy"] : VideoArguments(encoder, quality, effort, source, scaleTo, extras.ToneMap, framesOnGpu));
+        args.AddRange(copy ? ["-c:v:0", "copy"] : VideoArguments(encoder, quality, effort, source, scaleTo, extras.ToneMap, framesOnGpu, extras.Deinterlace, extras.HdrBrightness));
 
         // Dolby Vision's enhancement layer (NAL type 63) and metadata (62) ride inside the HEVC video; removing them,
         // and the record that says they're there, leaves the HDR10 or HLG picture beneath.
@@ -357,14 +364,14 @@ public static class FfmpegArguments
         return VideoArguments(encoder, quality, effort, source, null);
     }
 
-    private static List<string> VideoArguments(string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, bool toneMap = false, bool framesOnGpu = false)
+    private static List<string> VideoArguments(string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, bool toneMap = false, bool framesOnGpu = false, bool deinterlace = false, Services.HdrBrightness? brightness = null)
     {
         var args = new List<string> { "-c:v", encoder };
 
-        // Frames kept on the GPU go to the encoder as they are, in the format the decoder made them. Scaling and tone
-        // mapping here run on the CPU, which wants the frames in system memory, so they never go together; and the
-        // pixel format is already right, so asking for one would make ffmpeg copy them back to change it.
-        framesOnGpu = framesOnGpu && scaleTo is null && !toneMap;
+        // Frames kept on the GPU go to the encoder as they are, in the format the decoder made them. Scaling, tone
+        // mapping and deinterlacing here run on the CPU, which wants the frames in system memory, so they never go
+        // together; and the pixel format is already right, so asking for one would make ffmpeg copy them back to change it.
+        framesOnGpu = framesOnGpu && scaleTo is null && !toneMap && !deinterlace;
         args.AddRange(QualityArguments(encoder, quality, effort));
 
         // Tone mapping only applies to HDR; afterwards the picture is SDR. H.264 is kept 8-bit, as players expect;
@@ -383,6 +390,13 @@ public static class FfmpegArguments
 
         // Only the main video is filtered; an mp4's cover art is copied as it is.
         var filters = new List<string>();
+
+        // Interlaced frames first, before anything changes their size; frames already progressive pass through.
+        if (deinterlace)
+        {
+            filters.Add("bwdif=mode=send_frame:parity=auto:deint=interlaced");
+        }
+
         if (toneMap)
         {
             filters.Add(ToneMapping.Filter(tenBit ? "yuv420p10le" : "yuv420p"));
@@ -427,6 +441,17 @@ public static class FfmpegArguments
             if (hdr)
             {
                 x265.Add("hdr10=1:repeat-headers=1:hdr10-opt=1");
+
+                // The original's brightness information, so players show the new file the same way.
+                if (brightness?.MasterDisplay is { } display)
+                {
+                    x265.Add("master-display=" + display);
+                }
+
+                if (brightness?.MaxCll is { } light)
+                {
+                    x265.Add("max-cll=" + light);
+                }
             }
 
             args.AddRange(["-x265-params", string.Join(':', x265)]);
@@ -487,7 +512,9 @@ public static class FfmpegArguments
 /// <param name="DolbyVisionProfile">The Dolby Vision profile, such as 8, or null when the video has none.</param>
 /// <param name="DolbyVisionOnly">Whether the video is only Dolby Vision (profile 5), with no HDR10, HLG or SDR picture beneath it.</param>
 /// <param name="DolbyVisionLayer">Whether the video carries a Dolby Vision enhancement layer (profile 7).</param>
-public record SourceVideo(bool IsMatroska, bool IsMp4, bool IsTenBit, bool IsHdr, string? ColorTransfer, string? Codec = null, int? DolbyVisionProfile = null, bool DolbyVisionOnly = false, bool DolbyVisionLayer = false);
+/// <param name="IsInterlaced">Whether Jellyfin found the video interlaced.</param>
+/// <param name="Container">The container, such as mkv or avi.</param>
+public record SourceVideo(bool IsMatroska, bool IsMp4, bool IsTenBit, bool IsHdr, string? ColorTransfer, string? Codec = null, int? DolbyVisionProfile = null, bool DolbyVisionOnly = false, bool DolbyVisionLayer = false, bool IsInterlaced = false, string? Container = null);
 
 /// <summary>
 /// Jellyfin's details to write into a new file.

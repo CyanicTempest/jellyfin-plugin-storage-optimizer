@@ -69,6 +69,16 @@ public class SummaryBuilder
             }
         }
 
+        // Tags switched off in the settings aren't shown.
+        var hiddenTags = (Plugin.Instance?.Configuration.HiddenIssueTags ?? []).ToHashSet(StringComparer.Ordinal);
+        if (hiddenTags.Count > 0)
+        {
+            foreach (var file in files)
+            {
+                file.Issues = file.Issues.Where(i => !hiddenTags.Contains(i)).ToList();
+            }
+        }
+
         _encodeService.ApplyTestedSavings(files);
         SuggestionRules.Apply(files);
         AddRange(summary.Files, files.OrderByDescending(f => f.EstimatedSavingsBytes).ThenByDescending(f => f.SizeBytes));

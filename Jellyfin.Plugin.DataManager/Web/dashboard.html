@@ -93,6 +93,7 @@
             /* Small labels beside a title: HDR, Multi-lang, Suggested, Compare */
             #DataManagerDashboardPage .dm-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px; border: 0; font: inherit; font-size: 11.5px; font-weight: 500; line-height: 1; white-space: nowrap; vertical-align: middle; background: var(--dm-raised); color: var(--dm-ink-2); }
             #DataManagerDashboardPage .dm-tag.dm-tag-plain { background: var(--dm-raised); color: var(--dm-ink-2); }
+            #DataManagerDashboardPage .dm-tag.dm-tag-issue { background: var(--dm-warning-chip); color: var(--dm-warning); }
             #DataManagerDashboardPage .dm-tag.dm-tag-suggested { background: var(--dm-tint); color: var(--dm-tint-ink); }
             #DataManagerDashboardPage button.dm-tag { cursor: pointer; }
             #DataManagerDashboardPage .dm-tag.dm-tag-ok { background: var(--dm-ok-chip); color: var(--dm-ok); }
@@ -228,7 +229,7 @@
             #DataManagerDashboardPage .dm-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
             #DataManagerDashboardPage .dm-list-search { flex: 1 1 220px; max-width: 280px; }
             #DataManagerDashboardPage .dm-list-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: 1 1 auto; min-width: 0; }
-            #DataManagerDashboardPage #dmLibrary { max-width: 200px; }
+            #DataManagerDashboardPage #dmLibrary, #DataManagerDashboardPage #dmIssue { max-width: 220px; }
             #DataManagerDashboardPage .dm-lh,
             #DataManagerDashboardPage .dm-row { display: grid; grid-template-columns: 22px 44px minmax(0, 1fr) 150px 160px; gap: 0 16px; align-items: center; padding: 0 20px; }
             #DataManagerDashboardPage .dm-lh { height: 38px; border-top: 1px solid var(--dm-line); border-bottom: 1px solid var(--dm-line); background: var(--dm-deep); font-size: 12px; font-weight: 500; color: var(--dm-ink-3); }
@@ -780,10 +781,12 @@
                                 </select>
                                 <div class="dm-list-pick">
                                 <select id="dmLibrary" class="dm-dropdown" aria-label="Library"></select>
+                                <select id="dmIssue" class="dm-dropdown dm-hidden" aria-label="File issues"></select>
                                 <select id="dmSort" class="dm-dropdown" aria-label="Sort by">
                                     <option value="saving">Sort: Could free</option>
                                     <option value="size">Sort: Size</option>
                                     <option value="bitrate">Sort: Bitrate</option>
+                                    <option value="resolution">Sort: Resolution</option>
                                     <option value="name">Sort: Name</option>
                                     <option value="watched">Sort: Last watched</option>
                                     <optgroup label="Group">
@@ -1194,6 +1197,8 @@
                 var leftovers = null;
                 // The library tab picked above the media list ('' for all), and how many titles of it are drawn.
                 var libraryFilter = '';
+                // '' for every file, 'any' for files with any issue, or one issue's code.
+                var issueFilter = '';
                 // The largest title on the page, so the little size bars share one scale.
                 var barMax = 1;
                 var leftoverPicked = {};
@@ -1671,12 +1676,18 @@
                     line.classList.toggle('dm-hidden', !text);
                 }
 
+                // How sharp a file is, comparing letterboxed films fairly with full-frame ones: by width, as 16:9 would have it.
+                function resolutionRank(f) {
+                    return Math.max(f.Height || 0, Math.round((f.Width || 0) * 9 / 16));
+                }
+
                 function sortFiles(files, sort) {
                     var sorted = files.slice();
                     var bySize = function (a, b) { return b.SizeBytes - a.SizeBytes; };
                     if (sort === 'size') { sorted.sort(bySize); }
                     else if (sort === 'saving') { sorted.sort(function (a, b) { return b.EstimatedSavingsBytes - a.EstimatedSavingsBytes || bySize(a, b); }); }
                     else if (sort === 'bitrate') { sorted.sort(function (a, b) { return b.Bitrate - a.Bitrate || bySize(a, b); }); }
+                    else if (sort === 'resolution') { sorted.sort(function (a, b) { return resolutionRank(b) - resolutionRank(a) || bySize(a, b); }); }
                     else if (sort === 'name') { sorted.sort(function (a, b) { return collator.compare(a.Name, b.Name); }); }
                     else if (sort === 'watched') { sorted.sort(function (a, b) { return playedTime(a) - playedTime(b) || bySize(a, b); }); }
                     else { sorted.sort(function (a, b) { return collator.compare(codecLabel(a.VideoCodec), codecLabel(b.VideoCodec)) || bySize(a, b); }); }
@@ -1707,6 +1718,30 @@
 
                 function extraTag(f) {
                     return f.ExtraType ? ' <span class="dm-tag dm-tag-plain" title="An extra that comes with a film or show. Deleting it leaves the main video alone.">' + escapeHtml(extraLabel(f.ExtraType)) + '</span>' : '';
+                }
+
+                // Likely problems with a file, each with what it means. "Likely" and "might" ones are guesses.
+                var issueInfo = {
+                    UnknownLanguage: ['Unknown language', 'An audio or subtitle track has no language set, so keeping languages can\'t tell what it is. You can set it in the re-encode window.'],
+                    NoMainAudio: ['No main audio', 'Its only audio is a commentary.'],
+                    NoDefaultAudio: ['No default audio', 'It has several audio tracks and none is the default, so players pick the first.'],
+                    ForcedNotFlagged: ['Forced not flagged', 'A subtitle track is titled forced but isn\'t flagged as forced, so players won\'t turn it on by themselves. Re-encoding sets the flag.'],
+                    Interlaced: ['Likely interlaced', 'Jellyfin found the video interlaced. Re-encoding deinterlaces it, unless that\'s switched off in the settings.'],
+                    ExtraVideo: ['Extra video stream', 'It has more than one video stream. A re-encode keeps only the first.'],
+                    OldContainer: ['Older container', 'AVI, MPEG-TS and WMV files might have broken timestamps. Re-encoding rebuilds them, unless that\'s switched off in the settings.'],
+                    HdrNoBrightness: ['HDR without brightness info', 'HDR10 without its mastering display and light level information, which TVs use to show it well.'],
+                    HdrNoColourTags: ['HDR without colour tags', 'HDR video that doesn\'t say what colours it\'s in, so players can show it washed out.'],
+                    BrokenTimestamps: ['Broken timestamps', 'Reading it through found timestamps that go backwards or are missing. Re-encoding rebuilds them.'],
+                    AudioDrift: ['Audio out of step', 'Its main audio runs a different length from its video.']
+                };
+                var issueOrder = Object.keys(issueInfo);
+
+                function issueLabel(code) { return (issueInfo[code] || [code])[0]; }
+
+                function issueTags(f) {
+                    return (f.Issues || []).map(function (code) {
+                        return ' <span class="dm-tag dm-tag-issue" title="' + escapeHtml((issueInfo[code] || [code, ''])[1]) + '">' + escapeHtml(issueLabel(code)) + '</span>';
+                    }).join('');
                 }
 
                 // Shown once a detail check finds the file looks the same at a smaller size.
@@ -1795,7 +1830,7 @@
                     return '<span><i class="dm-dot" style="--dm-c:' + codecColour(f.VideoCodec) + '"></i>' + escapeHtml(codecLabel(f.VideoCodec)) + (res ? ' · ' + escapeHtml(res) : '') + (f.IsHdr ? ' · HDR' : '') + '</span>'
                         + (f.DurationSeconds ? '<span>' + formatLength(f.DurationSeconds) + '</span>' : '')
                         + (f.Bitrate ? '<span>' + formatBitrate(f.Bitrate) + '</span>' : '')
-                        + trackMeta(f) + extraTag(f) + detailTag(f)
+                        + trackMeta(f) + extraTag(f) + detailTag(f) + issueTags(f)
                         + (showWatched() ? '<span>' + escapeHtml(watchedLine(f.LastPlayed, f.DateAdded)) + '</span>' : '');
                 }
 
@@ -1912,7 +1947,7 @@
                 var mainIdsCache = null;
 
                 function searchText(f) {
-                    if (f.dmSearch === undefined) { f.dmSearch = (f.Name + ' ' + (f.SeriesName || '') + ' ' + f.Path).toLowerCase(); }
+                    if (f.dmSearch === undefined) { f.dmSearch = (f.Name + ' ' + (f.SeriesName || '') + ' ' + f.Path + ' ' + (f.Issues || []).map(issueLabel).join(' ')).toLowerCase(); }
                     return f.dmSearch;
                 }
 
@@ -1922,6 +1957,9 @@
                     var files = summary.Files;
                     if (libraryFilter) {
                         files = files.filter(function (f) { return f.Library === libraryFilter; });
+                    }
+                    if (issueFilter) {
+                        files = files.filter(function (f) { return (f.Issues || []).length && (issueFilter === 'any' || f.Issues.indexOf(issueFilter) !== -1); });
                     }
                     if (showMode() === 'suggested') {
                         files = files.filter(function (f) { return f.IsRecommended; });
@@ -1954,6 +1992,25 @@
                         return '<option value="' + escapeHtml(l.Name) + '">' + escapeHtml((l.Label || l.Name) + ' (' + l.FileCount + ')') + '</option>';
                     }).join('');
                     picker.value = libraryFilter;
+                    renderIssueFilter();
+                }
+
+                // Each issue the files have, with how many have it. Hidden while no file has any.
+                function renderIssueFilter() {
+                    var counts = {};
+                    var any = 0;
+                    summary.Files.forEach(function (f) {
+                        if ((f.Issues || []).length) { any++; }
+                        (f.Issues || []).forEach(function (code) { counts[code] = (counts[code] || 0) + 1; });
+                    });
+                    if (issueFilter && issueFilter !== 'any' && !counts[issueFilter]) { issueFilter = ''; }
+                    if (!any) { issueFilter = ''; }
+                    var picker = $('#dmIssue');
+                    picker.classList.toggle('dm-hidden', !any);
+                    var codes = issueOrder.filter(function (c) { return counts[c]; }).concat(Object.keys(counts).filter(function (c) { return issueOrder.indexOf(c) < 0; }));
+                    picker.innerHTML = '<option value="">All files</option><option value="any">' + escapeHtml('Any issue (' + any + ')') + '</option>'
+                        + codes.map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(issueLabel(c) + ' (' + counts[c] + ')') + '</option>'; }).join('');
+                    picker.value = issueFilter;
                 }
 
                 // How the list is ordered: by what each row shows, so a series sorts by its totals.
@@ -1962,6 +2019,7 @@
                     if (sort === 'size') { return bySize; }
                     if (sort === 'saving') { return function (a, b) { return b.saving - a.saving || bySize(a, b); }; }
                     if (sort === 'bitrate') { return function (a, b) { return b.bitrate - a.bitrate || bySize(a, b); }; }
+                    if (sort === 'resolution') { return function (a, b) { return b.resolution - a.resolution || bySize(a, b); }; }
                     if (sort === 'name') { return function (a, b) { return collator.compare(a.name, b.name); }; }
                     if (sort === 'watched') { return function (a, b) { return a.played - b.played || bySize(a, b); }; }
                     return function (a, b) { return collator.compare(a.codec, b.codec) || bySize(a, b); };
@@ -2052,7 +2110,7 @@
                         var title = { main: main, versions: versions, groupKey: groupKey };
                         var codec = codecLabel(main.VideoCodec);
                         if (!isEpisode(main)) {
-                            entries.push({ title: title, name: main.Name, codec: codec, size: main.SizeBytes, saving: main.EstimatedSavingsBytes, bitrate: main.Bitrate, played: playedTime(main) });
+                            entries.push({ title: title, name: main.Name, codec: codec, size: main.SizeBytes, saving: main.EstimatedSavingsBytes, bitrate: main.Bitrate, played: playedTime(main), resolution: resolutionRank(main) });
                             return;
                         }
                         // Grouped by codec, a series is split by codec too, so each part sits under its codec.
@@ -2072,9 +2130,15 @@
                         show.titles.push(title);
                     });
 
+                    // A season or series sorts by its sharpest episode.
+                    var sharpest = function (titles) { return Math.max.apply(null, titles.map(function (title) { return resolutionRank(title.main); }).concat([0])); };
                     entries.forEach(function (entry) {
                         if (entry.title) { return; }
-                        entry.seasons.sort(function (a, b) { return seasonOrder(a.number) - seasonOrder(b.number) || collator.compare(a.name, b.name); });
+                        entry.seasons.forEach(function (season) { season.resolution = sharpest(season.titles); });
+                        entry.seasons.sort(function (a, b) {
+                            return (sort === 'resolution' ? b.resolution - a.resolution : 0) || seasonOrder(a.number) - seasonOrder(b.number) || collator.compare(a.name, b.name);
+                        });
+                        entry.resolution = sharpest(entry.titles);
                         entry.seasons.forEach(function (season) {
                             season.titles.sort(function (a, b) {
                                 var x = a.main.EpisodeNumber == null ? 1e6 : a.main.EpisodeNumber;
@@ -3306,6 +3370,12 @@
                     var hdrChoice = $('#dmHdr').value;
                     if (hdr.length && codec === 'H264' && hdrChoice !== 'ToneMapToSdr') { warnings.push('H.264 can\'t keep HDR, so HDR files will fail. Choose to turn HDR into SDR below, or another codec.'); }
                     if (hdr.length && codec !== 'H264' && hdrChoice !== 'ToneMapToSdr') { warnings.push('Dolby Vision enhancement layers and HDR10+ data will be dropped. HDR10 is kept.'); }
+                    // Only the first video stream is kept, so any others are named before they go.
+                    var extraVideo = files.filter(function (f) { return (f.Issues || []).indexOf('ExtraVideo') !== -1; });
+                    if (extraVideo.length) {
+                        warnings.push((extraVideo.length === 1 ? titleOf(extraVideo[0]) + ' has' : plural(extraVideo.length, 'file') + ' have') + ' more than one video stream. Only the first is kept'
+                            + (extraVideo.length > 1 ? ': ' + extraVideo.slice(0, 5).map(titleOf).join(', ') + (extraVideo.length > 5 ? ' and ' + (extraVideo.length - 5) + ' more' : '') : '') + '.');
+                    }
                     var same = files.filter(function (f) { return f.VideoCodec.toLowerCase() === codec.toLowerCase(); });
                     if (same.length) { warnings.push(plural(same.length, 'file') + ' already ' + (same.length === 1 ? 'uses' : 'use') + ' ' + codecLabel(codec.toLowerCase()) + ', so the saving will be small.'); }
                     // Files in a format Jellyfin isn't set to decode on the GPU are decoded on the CPU, which can be the slow part.
@@ -6002,6 +6072,10 @@
                 });
                 $('#dmLibrary').addEventListener('change', function () {
                     libraryFilter = this.value;
+                    renderMedia();
+                });
+                $('#dmIssue').addEventListener('change', function () {
+                    issueFilter = this.value;
                     renderMedia();
                 });
                 $('#dmSort').addEventListener('change', function () {

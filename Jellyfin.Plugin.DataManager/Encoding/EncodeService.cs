@@ -1424,7 +1424,7 @@ public sealed class EncodeService : IDisposable
                 cancellationToken,
 
                 // Scaling and tone mapping run on the CPU, which wants the frames in system memory.
-                keepFrames: config.KeepFramesOnGpu && scaleTo is null && !extras.ToneMap).ConfigureAwait(false);
+                keepFrames: config.KeepFramesOnGpu && scaleTo is null && !extras.ToneMap && !extras.Deinterlace).ConfigureAwait(false);
 
             // The new file's video, without the copied audio, against what the rule of thumb expected. Tone mapping
             // slows encoding down, so its speed would mislead estimates for plain encodes and isn't kept.
@@ -1440,7 +1440,7 @@ public sealed class EncodeService : IDisposable
             }
 
             job.Message = "Checking the new file…";
-            await VerifyAsync(source.FullName, tempPath, tracks, cancellationToken).ConfigureAwait(false);
+            await VerifyAsync(job, source.FullName, tempPath, tracks, extras, cancellationToken).ConfigureAwait(false);
             encoded = true;
             job.OutputBytes = new FileInfo(tempPath).Length;
 
@@ -1513,7 +1513,7 @@ public sealed class EncodeService : IDisposable
             await RunFfmpegAsync(args, duration, 0, job, cancellationToken).ConfigureAwait(false);
 
             job.Message = "Checking the new file…";
-            await VerifyAsync(source.FullName, tempPath, tracks, cancellationToken).ConfigureAwait(false);
+            await VerifyAsync(job, source.FullName, tempPath, tracks, extras, cancellationToken).ConfigureAwait(false);
             finished = true;
             job.OutputBytes = new FileInfo(tempPath).Length;
 
@@ -1658,12 +1658,129 @@ public sealed class EncodeService : IDisposable
             notes.Add("Turned HDR into SDR.");
         }
 
+        // Reading the file through, when switched on, finds broken timestamps and the like before encoding.
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var found = config.CheckFilesWhenQueued ? await ReadCheckAsync(job, source, sourceInfo, cancellationToken).ConfigureAwait(false) : [];
+        if (found.Contains(FileIssues.AudioDrift))
+        {
+            notes.Add("Its audio runs a different length from its video, so check the new file plays in step.");
+        }
+
+        var rebuild = config.RebuildTimestamps && (FileIssues.IsOldContainer(sourceInfo.Container) || found.Contains(FileIssues.BrokenTimestamps));
+        if (rebuild && found.Contains(FileIssues.BrokenTimestamps))
+        {
+            notes.Add("Rebuilt its broken timestamps.");
+        }
+
+        var deinterlace = config.DeinterlaceWhenEncoding && sourceInfo.IsInterlaced && !job.IsRemux;
+        if (deinterlace)
+        {
+            notes.Add("Deinterlaced it.");
+        }
+
+        // HDR10 brightness information goes into the new file, so players show it the same way.
+        var brightness = config.CopyHdrBrightness && sourceInfo.IsHdr && !toneMap && !job.IsRemux
+            ? await ProbeBrightnessAsync(source.FullName, cancellationToken).ConfigureAwait(false)
+            : null;
+
         if (notes.Count > 0)
         {
             job.TracksNote = string.Join(" ", new[] { job.TracksNote }.Concat(notes).Where(n => !string.IsNullOrEmpty(n)));
         }
 
-        return new EncodeExtras(audio, toneMap, strip, keptAttachments, job.StripCoverArt, sourceAttachments) { Rewrites = PlanRewrites(job, tracks, audio) };
+        return new EncodeExtras(audio, toneMap, strip, keptAttachments, job.StripCoverArt, sourceAttachments)
+        {
+            Rewrites = PlanRewrites(job, tracks, audio),
+            Deinterlace = deinterlace,
+            RebuildTimestamps = rebuild,
+            HdrBrightness = brightness
+        };
+    }
+
+    // The first frame's HDR10 brightness information, or null if it has none or can't be read.
+    private async Task<HdrBrightness?> ProbeBrightnessAsync(string path, CancellationToken cancellationToken)
+    {
+        var json = await StorageScanner.FfprobeAsync(_mediaEncoder.ProbePath, ["-v", "error", "-select_streams", "V:0", "-read_intervals", "%+#1", "-show_frames", "-show_entries", "frame=side_data_list", "-of", "json", path], TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+        return json is null ? null : FileIssues.ParseBrightness(json);
+    }
+
+    // Reads the whole file without decoding it, as fast as the disk allows, for timestamps that go backwards or are
+    // missing; and compares its tracks' lengths and colour tags. What it finds is kept, so the list tags the file.
+    private async Task<IReadOnlyList<string>> ReadCheckAsync(EncodeJob job, FileInfo source, SourceVideo sourceInfo, CancellationToken cancellationToken)
+    {
+        if (FileChecks.Get(source.FullName, source.Length)?.ReadIssues is { } known)
+        {
+            return known;
+        }
+
+        job.Message = "Reading the file through to check it…";
+        var issues = new List<string>();
+        var startInfo = new ProcessStartInfo(_mediaEncoder.EncoderPath)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var arg in new[] { "-hide_banner", "-nostdin", "-v", "error", "-i", source.FullName, "-map", "0", "-c", "copy", "-f", "null", "-" })
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        var broken = 0;
+        using (var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start ffmpeg."))
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(TimeSpan.FromMinutes(20));
+            _ = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+            try
+            {
+                while (await process.StandardError.ReadLineAsync(limit.Token).ConfigureAwait(false) is { } line)
+                {
+                    if (OutputCheck.IsTimestampError(line))
+                    {
+                        broken++;
+                    }
+                }
+
+                await process.WaitForExitAsync(limit.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                process.Kill(true);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+
+                // Too slow to read through; the other checks still count.
+                broken = 0;
+            }
+        }
+
+        // One or two complaints as a file starts are normal for B-frames in mkv, whose demuxer guesses the first
+        // timestamps; broken ones keep coming.
+        if (broken >= 5)
+        {
+            issues.Add(FileIssues.BrokenTimestamps);
+        }
+
+        var json = await StorageScanner.FfprobeAsync(_mediaEncoder.ProbePath, ["-v", "error", "-show_entries", "stream=index,codec_type,codec_name,duration,color_primaries,color_transfer,color_space:stream_tags:stream_disposition=attached_pic", "-of", "json", source.FullName], TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+        if (json is not null)
+        {
+            if (OutputCheck.Drift(json) is > 2)
+            {
+                issues.Add(FileIssues.AudioDrift);
+            }
+
+            if (sourceInfo.IsHdr && !OutputCheck.HasColourTags(json))
+            {
+                issues.Add(FileIssues.HdrNoColourTags);
+            }
+        }
+
+        FileChecks.Update(source.FullName, source.Length, c => c.ReadIssues = issues);
+        return issues;
     }
 
     // The new titles, languages and flags of the tracks kept, from the settings and the languages chosen in the window.
@@ -2063,7 +2180,9 @@ public sealed class EncodeService : IDisposable
             Codec: video?.Codec,
             DolbyVisionProfile: video?.DvProfile is > 0 ? video.DvProfile : null,
             DolbyVisionOnly: video?.DvProfile is > 0 && video.DvBlSignalCompatibilityId == 0,
-            DolbyVisionLayer: video?.DvProfile is > 0 && video.ElPresentFlag == 1);
+            DolbyVisionLayer: video?.DvProfile is > 0 && video.ElPresentFlag == 1,
+            IsInterlaced: video?.IsInterlaced == true,
+            Container: item.Container ?? source.Extension.TrimStart('.'));
     }
 
     internal static double FrameRate(Video item)
@@ -2331,7 +2450,7 @@ public sealed class EncodeService : IDisposable
         job.RemainingSeconds = null;
     }
 
-    private async Task VerifyAsync(string sourcePath, string outputPath, TrackPlan? tracks, CancellationToken cancellationToken)
+    private async Task VerifyAsync(EncodeJob job, string sourcePath, string outputPath, TrackPlan? tracks, EncodeExtras extras, CancellationToken cancellationToken)
     {
         var source = await ProbeLengthsAsync(sourcePath, cancellationToken).ConfigureAwait(false);
         var output = await ProbeLengthsAsync(outputPath, cancellationToken).ConfigureAwait(false);
@@ -2345,11 +2464,20 @@ public sealed class EncodeService : IDisposable
         }
 
         // The new file must have the main video and every audio and subtitle track planned, and its film's sound.
-        var sourceTracks = await ProbeTracksAsync(sourcePath, cancellationToken).ConfigureAwait(false);
-        var outputJson = await ProbeJsonAsync(outputPath, ["-v", "error", "-show_entries", "stream=index,codec_type,codec_name,channels,bit_rate:stream_tags:stream_disposition=default,forced,attached_pic", "-of", "json", outputPath], cancellationToken).ConfigureAwait(false);
-        if (OutputCheck.Problem(sourceTracks, outputJson, tracks, _languages.Normalize) is { } problem)
+        string[] Entries(string path) => ["-v", "error", "-show_entries", "stream=index,codec_type,codec_name,channels,bit_rate,duration:stream_tags:stream_disposition=default,forced,attached_pic", "-of", "json", path];
+        var sourceJson = await ProbeJsonAsync(sourcePath, Entries(sourcePath), cancellationToken).ConfigureAwait(false);
+        var outputJson = await ProbeJsonAsync(outputPath, Entries(outputPath), cancellationToken).ConfigureAwait(false);
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var sourceTracks = ParseTracks(sourceJson, _languages.Normalize);
+        if (OutputCheck.Problem(sourceTracks, outputJson, tracks, _languages.Normalize, config.RebuildTimestamps ? sourceJson : null) is { } problem)
         {
             throw new InvalidOperationException(problem + " It was discarded and the original kept.");
+        }
+
+        // Not every GPU encoder writes HDR10 brightness information, so the new file is checked for it.
+        if (extras.HdrBrightness is not null && await ProbeBrightnessAsync(outputPath, cancellationToken).ConfigureAwait(false) is null)
+        {
+            job.TracksNote = string.Join(" ", new[] { job.TracksNote, "The new file has no HDR brightness information: " + job.Encoder + " didn't write it, so some TVs may show it a little differently." }.Where(n => !string.IsNullOrEmpty(n)));
         }
     }
 
