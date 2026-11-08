@@ -69,7 +69,7 @@ Then open **Catalog**, find **Storage Optimizer**, install it and restart Jellyf
 
 Prefer to do it by hand? Put `Jellyfin.Plugin.DataManager.dll` in a folder such as `plugins/StorageOptimizer` inside Jellyfin's data directory and restart Jellyfin.
 
-It needs Jellyfin 12.3. To build it yourself you need the .NET 10 SDK: `dotnet publish Jellyfin.Plugin.DataManager -c Release -o build-output`.
+It needs Jellyfin 12.4 or later. To build it yourself you need the .NET 10 SDK: `dotnet publish Jellyfin.Plugin.DataManager -c Release -o build-output`.
 
 ## Not affiliated
 

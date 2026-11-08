@@ -15,7 +15,7 @@ documentation comments follow it.
 
 ## Jellyfin packages (GPL-3.0-only)
 
-The plugin is compiled against `Jellyfin.Controller` and `Jellyfin.Model` 12.3.0
+The plugin is compiled against `Jellyfin.Controller` and `Jellyfin.Model` 12.4.0
 (https://github.com/jellyfin/jellyfin), which NuGet lists as GPL-3.0-only. Their code is not copied into
 this repository or into the plugin zip; the plugin is a GPL-3.0 work that uses them.
 
