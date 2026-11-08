@@ -81,6 +81,9 @@ public static class EncoderSelector
         {
             HardwareAccelerationType.nvenc => "cuda",
             HardwareAccelerationType.qsv => isWindows ? "d3d11va" : "vaapi",
+
+            // AMD (and Intel set up as VA-API) on Linux. New and untried on many cards, like VAAPI encoding.
+            HardwareAccelerationType.vaapi when !isWindows => "vaapi",
             _ => null
         };
         if (hwaccel is null || string.IsNullOrEmpty(sourceCodec) || !decodingCodecs.Contains(sourceCodec, StringComparer.OrdinalIgnoreCase))
@@ -129,12 +132,24 @@ public static class EncoderSelector
         }
 
         // VAAPI encoders take frames as surfaces on the GPU, which the filter chain uploads to the device set up here.
-        // Decoding stays on the CPU.
+        // The same device decodes, with the frames copied back to system memory, so the filters and a CPU encoder
+        // work as they do for a CPU decode.
         if (hardware == HardwareAccelerationType.vaapi)
         {
-            if (encoder.EndsWith("_vaapi", StringComparison.Ordinal))
+            var vaapiEncoder = encoder.EndsWith("_vaapi", StringComparison.Ordinal);
+            if (vaapiEncoder || hwaccel is not null)
             {
-                args.AddRange(["-init_hw_device", "vaapi=" + VaapiAlias + ":" + devicePath, "-filter_hw_device", VaapiAlias]);
+                args.AddRange(["-init_hw_device", "vaapi=" + VaapiAlias + ":" + devicePath]);
+            }
+
+            if (hwaccel is not null)
+            {
+                args.AddRange(["-hwaccel", hwaccel, "-hwaccel_device", VaapiAlias]);
+            }
+
+            if (vaapiEncoder)
+            {
+                args.AddRange(["-filter_hw_device", VaapiAlias]);
             }
 
             return args;

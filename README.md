@@ -18,7 +18,7 @@ It can:
 - **Find duplicates:** the same movie or episode in your library more than once, with the best copy marked.
 - **Find media nobody watches**, so you can shrink it harder or let it go.
 - **Clean up leftovers:** orphaned metadata and trickplay folders, and sample clips.
-- **Use your GPU** when Jellyfin is set up for it (NVIDIA, Intel Quick Sync Video, and AMD on Windows, though only NVIDIA has had much real-world use), run several encodes at once if your hardware can, and step aside while Jellyfin is transcoding a stream for someone.
+- **Use your GPU** when Jellyfin is set up for it (NVIDIA, Intel Quick Sync Video, and AMD on Windows or on Linux through VA-API, which is experimental; only NVIDIA has had much real-world use), run several encodes at once if your hardware can, and step aside while Jellyfin is transcoding a stream for someone.
 
 <details>
 <summary>More screenshots</summary>

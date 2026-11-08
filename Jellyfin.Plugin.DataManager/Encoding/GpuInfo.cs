@@ -384,8 +384,8 @@ internal static partial class GpuParsing
     {
         ArgumentNullException.ThrowIfNull(decodingCodecs);
 
-        // Only NVIDIA and Intel decode on the GPU in this plugin; the others decode on the CPU whatever is set.
-        if (hardware is not (MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc or MediaBrowser.Model.Entities.HardwareAccelerationType.qsv))
+        // NVIDIA, Intel and VA-API (AMD on Linux) decode on the GPU in this plugin; the others decode on the CPU whatever is set.
+        if (hardware is not (MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc or MediaBrowser.Model.Entities.HardwareAccelerationType.qsv or MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi))
         {
             return null;
         }

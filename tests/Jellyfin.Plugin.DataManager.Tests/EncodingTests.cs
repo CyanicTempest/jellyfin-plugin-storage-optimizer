@@ -439,12 +439,27 @@ public sealed class EncodingTests
     }
 
     [Fact]
+    public void Vaapi_decodes_on_the_gpu_with_the_frames_copied_back_for_the_filters()
+    {
+        Assert.Equal("vaapi", EncoderSelector.DecodeHwaccel(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, ["hevc"], "hevc", false, true, true, false));
+        Assert.Null(EncoderSelector.DecodeHwaccel(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, ["h264"], "hevc", false, true, true, false));
+        Assert.Null(EncoderSelector.DecodeHwaccel(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, ["hevc"], "hevc", true, false, true, false));
+
+        var args = EncoderSelector.HardwareArguments(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, "hevc_vaapi", "vaapi", "/dev/dri/renderD128", false).ToList();
+        Assert.Equal(["-init_hw_device", "vaapi=dmva:/dev/dri/renderD128", "-hwaccel", "vaapi", "-hwaccel_device", "dmva", "-filter_hw_device", "dmva"], args);
+        Assert.DoesNotContain("-hwaccel_output_format", args);
+
+        // A CPU encoder still gets the GPU's decoding.
+        Assert.Equal(["-init_hw_device", "vaapi=dmva:/dev/dri/renderD128", "-hwaccel", "vaapi", "-hwaccel_device", "dmva"], EncoderSelector.HardwareArguments(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, "libx265", "vaapi", "/dev/dri/renderD128", false));
+    }
+
+    [Fact]
     public void DecodeProblem_is_null_when_everything_in_the_library_decodes_on_the_gpu_or_the_card_does_not_decode_here()
     {
         var library = new Dictionary<string, int> { ["h264"] = 300, ["hevc"] = 40 };
 
         Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.nvenc, ["h264", "hevc"], true, library, 10));
-        Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.vaapi, [], false, library, 10));
+        Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.amf, [], false, library, 10));
         Assert.Null(GpuParsing.DecodeProblem(MediaBrowser.Model.Entities.HardwareAccelerationType.none, [], false, library, 10));
     }
 
