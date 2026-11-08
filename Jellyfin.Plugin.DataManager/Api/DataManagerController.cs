@@ -90,6 +90,19 @@ public class DataManagerController : ControllerBase
     }
 
     /// <summary>
+    /// Gets the drives the libraries are on, for the settings, with the ones the overview hides marked.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The drives, largest share of video first.</returns>
+    [HttpGet("Drives")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<StorageDrive>>> GetDrives(CancellationToken cancellationToken)
+    {
+        var report = await StorageScanner.LoadAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(_summaryBuilder.Drives(report?.Files ?? []));
+    }
+
+    /// <summary>
     /// Gets the state of the storage scan task.
     /// </summary>
     /// <returns>The task state and progress.</returns>

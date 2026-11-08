@@ -276,6 +276,12 @@
                     <div class="dm-infoln"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Only files are renamed, never folders. A version kept beside the original gets the codec, and the resolution if it was scaled down, after a dash, as Jellyfin names versions. When a re-encode replaces the original under a new name, the original's subtitles, artwork and .nfo files are renamed to match. Jellyfin sees a renamed file as a new one and looks its details up again.</p></div>
                 </section>
 
+                <section class="dm-card" aria-labelledby="dmcDrivesTitle">
+                    <div class="dm-sh dm-tight"><h2 id="dmcDrivesTitle" class="dm-h2">Drives</h2></div>
+                    <div id="dmcDrives"><div class="dm-srow"><div class="dm-srow-tx"><span>Reading your drives.</span></div></div></div>
+                    <div class="dm-infoln"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>Switch a drive off to leave it out of the overview's drive bars and free space. Re-encodes still check its free space before they start. A drive added later is shown until you switch it off.</p></div>
+                </section>
+
                 <section class="dm-card" aria-labelledby="dmcCustomTitle">
                     <div class="dm-sh dm-tight"><h2 id="dmcCustomTitle" class="dm-h2">Customisation</h2></div>
                     <div class="dm-srow dm-stackrow">
@@ -349,6 +355,10 @@
                 names.ResumeAfterSeconds = 'Carry on after';
                 names.OnlyCountVideoTranscodes = 'Only count streams that transcode video';
                 names.KeepFramesOnGpu = 'Keep frames on the GPU';
+                // Kept as the hidden ids, sorted and one per line, so a change can be told from the saved list.
+                keys.push('HiddenDrives');
+                names.HiddenDrives = 'Drives';
+                var drives = null;
 
                 var gpu = null;
                 var gpuTimer = null;
@@ -393,6 +403,47 @@
                     var note = $('#dmcGpuNote');
                     note.classList.toggle('dm-hidden', !g.Note);
                     note.querySelector('p').textContent = g.Note || '';
+                }
+
+                function hiddenList() { return current && current.HiddenDrives ? current.HiddenDrives.split('\n') : []; }
+
+                function formatBytes(bytes) {
+                    if (!(bytes >= 0)) { return ''; }
+                    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+                    var i = 0;
+                    while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+                    return bytes.toFixed(i >= 3 ? 1 : 0) + ' ' + units[i];
+                }
+
+                function renderDrives() {
+                    var box = $('#dmcDrives');
+                    if (!drives || !current) { return; }
+                    if (!drives.length) {
+                        box.innerHTML = '<div class="dm-srow"><div class="dm-srow-tx"><span>No drives yet. They are found when Storage Optimizer scans your libraries.</span></div></div>';
+                        return;
+                    }
+                    var hidden = hiddenList();
+                    box.innerHTML = drives.map(function (d, i) {
+                        var shown = hidden.indexOf(d.Id) < 0;
+                        var where = (d.MountPoints || []).join(', ');
+                        var kind = [d.Kind !== d.Name ? d.Kind : '', d.FileSystem].filter(Boolean).join(' \u00b7 ');
+                        var space = d.TotalBytes > 0 ? formatBytes(d.FreeBytes) + ' free of ' + formatBytes(d.TotalBytes) : 'Its space can\'t be read';
+                        var video = d.FileCount ? formatBytes(d.VideoBytes) + ' of video in ' + plural(d.FileCount, 'file') : 'No videos on it';
+                        return '<label class="dm-srow" for="dmcDrive' + i + '"><div class="dm-srow-tx"><b id="dmcDriveLabel' + i + '">' + escapeHtml(d.Name)
+                            + (d.Size ? ' <span class="dm-chip">' + escapeHtml(d.Size) + '</span>' : '') + '</b>'
+                            + '<span>' + escapeHtml([where, kind].filter(Boolean).join(' \u00b7 ')) + '</span>'
+                            + '<span>' + escapeHtml(space + '. ' + video + '.') + '</span></div>'
+                            + '<button type="button" id="dmcDrive' + i + '" class="dm-switch" role="switch" data-drive="' + escapeHtml(d.Id) + '" aria-checked="' + shown + '" aria-labelledby="dmcDriveLabel' + i + '" aria-label="Show on the overview"></button></label>';
+                    }).join('');
+                }
+
+                function loadDrives() {
+                    ApiClient.getJSON(ApiClient.getUrl('DataManager/Drives')).then(function (list) {
+                        drives = list || [];
+                        renderDrives();
+                    }, function () {
+                        $('#dmcDrives').innerHTML = '<div class="dm-srow"><div class="dm-srow-tx"><span>The drives couldn\'t be read. Check the Jellyfin log.</span></div></div>';
+                    });
                 }
 
                 function renderAtOnce() {
@@ -542,6 +593,7 @@
                     }
                     if (key === 'WriteMetadata' || key === 'OnlyCountVideoTranscodes' || key === 'KeepFramesOnGpu') { return value ? 'On' : 'Off'; }
                     if (key === 'EncodesAtOnce') { return value ? String(value) : 'Recommended'; }
+                    if (key === 'HiddenDrives') { return value ? plural(value.split('\n').length, 'drive') + ' hidden' : 'All shown'; }
                     return '"' + value + '"';
                 }
 
@@ -686,6 +738,7 @@
                     renderAtOnce();
                     renderWatching();
                     renderKeepFrames();
+                    renderDrives();
                     renderDock();
                 }
 
@@ -826,7 +879,7 @@
                     Dashboard.showLoadingMsg();
                     // Start from what the server has now, so settings this page doesn't show are left as they are.
                     return ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
-                        keys.forEach(function (k) { config[k] = normal(k, current[k]); });
+                        keys.forEach(function (k) { config[k] = k === 'HiddenDrives' ? hiddenList() : normal(k, current[k]); });
                         return ApiClient.updatePluginConfiguration(pluginUniqueId, config);
                     }).then(function (result) {
                         keys.forEach(function (k) { current[k] = normal(k, current[k]); });
@@ -863,7 +916,8 @@
                         OnlyCountVideoTranscodes: config.OnlyCountVideoTranscodes !== false,
                         KeepFramesOnGpu: !!config.KeepFramesOnGpu,
                         EncodingSectionStart: config.EncodingSectionStart || 'Remember',
-                        CleanUpSectionStart: config.CleanUpSectionStart || 'Remember'
+                        CleanUpSectionStart: config.CleanUpSectionStart || 'Remember',
+                        HiddenDrives: (config.HiddenDrives || []).slice().sort().join('\n')
                     };
                 }
 
@@ -881,6 +935,7 @@
                         Dashboard.hideLoadingMsg();
                     });
                     loadGpu();
+                    loadDrives();
                     loadStatus();
                     clearInterval(statusTimer);
                     statusTimer = setInterval(loadStatus, 5000);
@@ -904,6 +959,16 @@
                 $('#dmcAtOnceUp').addEventListener('click', function () { step(1); });
                 $('#dmcVideoOnly').addEventListener('click', function () { pick('OnlyCountVideoTranscodes', !current.OnlyCountVideoTranscodes); });
                 $('#dmcKeepFrames').addEventListener('click', function () { pick('KeepFramesOnGpu', !current.KeepFramesOnGpu); });
+                $('#dmcDrives').addEventListener('click', function (e) {
+                    var button = e.target.closest('button[data-drive]');
+                    if (!button) { return; }
+                    var id = button.dataset.drive;
+                    var hidden = hiddenList().filter(function (h) { return h !== id; });
+                    if (button.getAttribute('aria-checked') === 'true') { hidden.push(id); }
+                    pick('HiddenDrives', hidden.sort().join('\n'));
+                    var again = $('#' + button.id);
+                    if (again) { again.focus(); }
+                });
 
                 $('#dmcTest').addEventListener('click', function (e) {
                     if (e.target.closest('#dmcTestStart')) {

@@ -92,10 +92,15 @@ public class SummaryBuilder
         return data.Length == 0 || !(location.Equals(data, StringComparison.Ordinal) || location.StartsWith(data + Path.DirectorySeparatorChar, StringComparison.Ordinal));
     }
 
-    // One drive per disk, found from the folders the files are in, so a disk shared by several libraries is counted
-    // once and each file's free-space check is for its own disk.
-    private void AddDrives(StorageSummary summary, IList<MediaFileInfo> files)
+    /// <summary>
+    /// Finds the drives the libraries and files are on, one per disk, so a disk shared by several libraries is counted
+    /// once and each file's free-space check is for its own disk. Each file gets its drive's id.
+    /// </summary>
+    /// <param name="files">The files from the last scan.</param>
+    /// <returns>The drives, largest share of video first, with the hidden ones marked.</returns>
+    public IReadOnlyList<StorageDrive> Drives(IList<MediaFileInfo> files)
     {
+        ArgumentNullException.ThrowIfNull(files);
         var roots = _libraryManager.GetVirtualFolders()
             .SelectMany(f => f.Locations.Select(l => (Type: f.CollectionType?.ToString(), Location: Path.TrimEndingDirectorySeparator(l))))
             .Where(l => IsLibraryFolder(l.Type, l.Location, _paths.DataPath))
@@ -113,12 +118,18 @@ public class SummaryBuilder
         }
 
         var hidden = (Plugin.Instance?.Configuration.HiddenDrives ?? []).ToHashSet(StringComparer.Ordinal);
-        foreach (var drive in map.Drives.OrderByDescending(d => d.VideoBytes).ThenBy(d => d.Name, StringComparer.Ordinal))
+        var drives = map.Drives.OrderByDescending(d => d.VideoBytes).ThenBy(d => d.Name, StringComparer.Ordinal).ToList();
+        foreach (var drive in drives)
         {
             drive.Hidden = hidden.Contains(drive.Id);
-            summary.Drives.Add(drive);
         }
 
+        return drives;
+    }
+
+    private void AddDrives(StorageSummary summary, IList<MediaFileInfo> files)
+    {
+        AddRange(summary.Drives, Drives(files));
         var shown = summary.Drives.Where(d => !d.Hidden && d.TotalBytes > 0).ToList();
         (summary.DriveTotalBytes, summary.FreeBytes) = shown.Count == 0 ? (-1, -1) : (shown.Sum(d => d.TotalBytes), shown.Sum(d => d.FreeBytes));
     }
