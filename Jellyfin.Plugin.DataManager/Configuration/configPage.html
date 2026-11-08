@@ -221,6 +221,10 @@
                         <div class="dm-srow-tx"><b id="dmcNoCpuLabel">Never encode on the CPU</b><span>Only encode on the GPU. Without a GPU encoder for the codec, encodes don&#39;t start.</span></div>
                         <button type="button" id="dmcNoCpu" class="dm-switch" role="switch" data-key="NeverEncodeOnCpu" aria-checked="false" aria-labelledby="dmcNoCpuLabel"></button>
                     </label>
+                    <label class="dm-srow" for="dmcEightBit">
+                        <div class="dm-srow-tx"><b id="dmcEightBitLabel">Allow 8-bit on a GPU that can&#39;t encode 10-bit</b><span>Older GPUs, such as Intel before Kaby Lake, only encode 8-bit. A 10-bit file is then encoded on the CPU, unless this is on: 8-bit on the GPU is much faster but can show banding in skies and shadows. HDR is always kept on the CPU; turned into SDR, it&#39;s encoded in 8-bit on the GPU either way.</span></div>
+                        <button type="button" id="dmcEightBit" class="dm-switch" role="switch" data-key="AllowEightBitOnGpu" aria-checked="false" aria-labelledby="dmcEightBitLabel"></button>
+                    </label>
                     <div class="dm-infoln dm-hidden" id="dmcGpuNote"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p></p></div>
                 </section>
 
@@ -300,6 +304,10 @@
                         <div class="dm-srow-tx"><b id="dmcDefStereoLabel">Mix surround audio down to stereo</b><span>What the stereo choice starts on.</span></div>
                         <button type="button" id="dmcDefStereo" class="dm-switch" role="switch" data-key="DefaultStereo" aria-checked="false" aria-labelledby="dmcDefStereoLabel"></button>
                     </label>
+                    <div class="dm-srow dm-stackrow">
+                        <div class="dm-srow-tx"><b id="dmcToneLabel">SDR style</b><span>How HDR&#39;s highlights are fitted into SDR when the window turns HDR into SDR. The preview shows each style, so you can compare them there. BT.2390 needs Jellyfin&#39;s own ffmpeg; without it, Hable is used.</span></div>
+                        <div class="dm-seg" role="radiogroup" aria-labelledby="dmcToneLabel" data-key="DefaultToneMapStyle" style="--dm-cols: 4"></div>
+                    </div>
                     <div class="dm-infoln"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><p>These only set what the re-encode window starts on. You can change any of them for each run there.</p></div>
                 </section>
 
@@ -538,8 +546,12 @@
                     DefaultAudio: 'Default audio', DefaultSubtitles: 'Default subtitles', DefaultLanguages: 'Languages to keep', DefaultAudioFormat: 'Lossless audio', DefaultStereo: 'Mix down to stereo',
                     RecycleDays: 'Replaced originals', KeepFreeGigabytes: 'Always keep free', SuggestMinimumMegabytes: 'Suggest from', SuggestMinimumPercent: 'Suggest from a share of'
                 });
+                keys.push('DefaultToneMapStyle', 'AllowEightBitOnGpu');
+                choices.DefaultToneMapStyle = [['Hable', 'Hable'], ['Bt2390', 'BT.2390'], ['Mobius', 'Mobius'], ['Reinhard', 'Reinhard']];
+                names.DefaultToneMapStyle = 'SDR style';
+                names.AllowEightBitOnGpu = 'Allow 8-bit on the GPU';
                 var numKeys = { EncodeFromHour: [0, 23], EncodeUntilHour: [0, 23], KeepFreeGigabytes: [0, 10000], SuggestMinimumMegabytes: [0, 100000], SuggestMinimumPercent: [0, 100] };
-                var switchKeys = ['LowPriority', 'NeverEncodeOnCpu', 'LimitEncodingHours', 'DefaultStereo', 'KeepCommentaryWords', 'KeepAudioDescriptionWords', 'KeepOriginalWords', 'KeepOtherTitleText', 'SetTrackLanguageAndFlags', 'CheckHdrBrightness', 'CheckFilesWhenQueued', 'DeinterlaceWhenEncoding', 'CopyHdrBrightness', 'RebuildTimestamps'];
+                var switchKeys = ['AllowEightBitOnGpu', 'LowPriority', 'NeverEncodeOnCpu', 'LimitEncodingHours', 'DefaultStereo', 'KeepCommentaryWords', 'KeepAudioDescriptionWords', 'KeepOriginalWords', 'KeepOtherTitleText', 'SetTrackLanguageAndFlags', 'CheckHdrBrightness', 'CheckFilesWhenQueued', 'DeinterlaceWhenEncoding', 'CopyHdrBrightness', 'RebuildTimestamps'];
                 keys.push('CheckHdrBrightness', 'CheckFilesWhenQueued', 'DeinterlaceWhenEncoding', 'CopyHdrBrightness', 'RebuildTimestamps', 'HiddenIssueTags');
                 names.CheckHdrBrightness = 'HDR brightness check';
                 names.CheckFilesWhenQueued = 'Read files before encoding';
@@ -1237,7 +1249,9 @@
                         RecycleDays: [0, 7, 30].indexOf(+config.RecycleDays) >= 0 ? +config.RecycleDays : 0,
                         KeepFreeGigabytes: numberOr(config.KeepFreeGigabytes, 1),
                         SuggestMinimumMegabytes: numberOr(config.SuggestMinimumMegabytes, 300),
-                        SuggestMinimumPercent: numberOr(config.SuggestMinimumPercent, 25)
+                        SuggestMinimumPercent: numberOr(config.SuggestMinimumPercent, 25),
+                        DefaultToneMapStyle: config.DefaultToneMapStyle || 'Hable',
+                        AllowEightBitOnGpu: !!config.AllowEightBitOnGpu
                     };
                 }
 

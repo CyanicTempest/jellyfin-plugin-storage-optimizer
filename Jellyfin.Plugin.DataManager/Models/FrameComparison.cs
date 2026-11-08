@@ -8,6 +8,9 @@ namespace Jellyfin.Plugin.DataManager.Models;
 /// </summary>
 public class FrameComparison
 {
+    /// <summary>Gets or sets what the preview had to do differently from the usual encode, such as using the CPU for a GPU that can't encode 10-bit, or null.</summary>
+    public string? Note { get; set; }
+
     /// <summary>Gets or sets the position of the frame, in seconds.</summary>
     public double PositionSeconds { get; set; }
 

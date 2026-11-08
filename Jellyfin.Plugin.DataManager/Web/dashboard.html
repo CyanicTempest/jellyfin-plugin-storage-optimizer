@@ -928,6 +928,13 @@
                                                         <option value="RemoveDolbyVision">Remove Dolby Vision, keep HDR10</option>
                                                         <option value="ToneMapToSdr">Turn HDR into SDR</option>
                                                     </select>
+                                                    <label for="dmToneStyle" id="dmToneStyleLabel" class="dm-hidden">SDR style</label>
+                                                    <select id="dmToneStyle" class="dm-dropdown dm-hidden" title="How HDR's highlights are fitted into SDR. Each style has its own preview, so you can compare them.">
+                                                        <option value="Hable">Hable: filmic, keeps highlights</option>
+                                                        <option value="Bt2390">BT.2390: brighter, closest to HDR</option>
+                                                        <option value="Mobius">Mobius: only rolls off the brightest parts</option>
+                                                        <option value="Reinhard">Reinhard: gentle and even</option>
+                                                    </select>
                                                 </div>
                                                 <div class="dm-extras">
                                                     <label><input type="checkbox" id="dmStereo" /> Mix surround audio down to stereo</label>
@@ -970,6 +977,7 @@
                                 <div class="dm-scores">
                                     <div id="dmMetrics" class="dm-metrics"></div>
                                     <div id="dmPreviewScores" class="dm-verdict"></div>
+                                    <p id="dmPreviewNote" class="dm-field-note dm-hidden" role="status"></p>
                                     <div class="dm-heat dm-hidden"></div>
                                 </div>
                             </div>
@@ -2533,6 +2541,7 @@
                         AudioFormat: $('#dmAudioFormat').value,
                         StereoAudio: $('#dmStereo').checked,
                         Hdr: $('#dmHdr').value,
+                        ToneMapStyle: $('#dmToneStyle').value || 'Hable',
                         StripFonts: $('#dmStripFonts').checked,
                         StripCoverArt: $('#dmStripCover').checked,
                         Overrides: withOverrides ? overridesList() : []
@@ -2595,6 +2604,7 @@
                     $('#dmSubtitles').value = ['KeepLanguages', 'KeepForced', 'RemoveAll'].indexOf(c.DefaultSubtitles) >= 0 ? c.DefaultSubtitles : 'KeepAll';
                     $('#dmAudioFormat').value = ['Eac3', 'Aac', 'Opus'].indexOf(c.DefaultAudioFormat) >= 0 ? c.DefaultAudioFormat : 'Keep';
                     $('#dmStereo').checked = !!c.DefaultStereo;
+                    $('#dmToneStyle').value = ['Bt2390', 'Mobius', 'Reinhard'].indexOf(c.DefaultToneMapStyle) >= 0 ? c.DefaultToneMapStyle : 'Hable';
                 }
 
                 // The languages the windows start ticked: the settings' own, or the user's and the server's.
@@ -2916,6 +2926,9 @@
                     if (remux && $('#dmHdr').value === 'ToneMapToSdr') { $('#dmHdr').value = 'Keep'; body.Hdr = 'Keep'; }
                     $('#dmHdr').classList.toggle('dm-hidden', !hdrFiles);
                     $('#dmHdrLabel').classList.toggle('dm-hidden', !hdrFiles);
+                    var styled = !!hdrFiles && !remux && $('#dmHdr').value === 'ToneMapToSdr';
+                    $('#dmToneStyle').classList.toggle('dm-hidden', !styled);
+                    $('#dmToneStyleLabel').classList.toggle('dm-hidden', !styled);
 
                     var note = [];
                     if (body.AudioFormat !== 'Keep' || body.StereoAudio) {
@@ -5419,13 +5432,15 @@
 
                 function previewSettings() {
                     var body = encodeBody();
-                    return [body.Codec, body.Quality, body.Effort, body.Resolution, body.Hdr === 'ToneMapToSdr' ? 'ToneMapToSdr' : 'Keep'].join('|');
+                    // Each tone-mapping style has its own preview, so they can be compared.
+                    return [body.Codec, body.Quality, body.Effort, body.Resolution, body.Hdr === 'ToneMapToSdr' ? 'ToneMapToSdr:' + body.ToneMapStyle : 'Keep'].join('|');
                 }
 
                 // A preview or clip request from its key: the file, the position and the settings.
                 function previewBody(key) {
                     var parts = key.split('|');
-                    return { ItemId: dashedGuid(parts[0]), PositionSeconds: Number(parts[1]), Codec: parts[2], Quality: parts[3], Effort: parts[4], Resolution: parts[5], Hdr: parts[6] || 'Keep' };
+                    var hdr = (parts[6] || 'Keep').split(':');
+                    return { ItemId: dashedGuid(parts[0]), PositionSeconds: Number(parts[1]), Codec: parts[2], Quality: parts[3], Effort: parts[4], Resolution: parts[5], Hdr: hdr[0], ToneMapStyle: hdr[1] || null };
                 }
 
                 function renderFilmstrip() {
@@ -5491,6 +5506,9 @@
                     }
                     previewViewer.show(result);
                     renderScores(result, true, $('#dmMetrics'), $('#dmPreviewScores'));
+                    // Such as a GPU that can't encode 10-bit, so the preview was made the way the encode will be.
+                    $('#dmPreviewNote').textContent = result.Note || '';
+                    $('#dmPreviewNote').classList.toggle('dm-hidden', !result.Note);
                 }
 
                 function runPreview(key) {
@@ -6189,6 +6207,7 @@
                     $(selector).addEventListener('change', function () { renderTracks(); tracksChanged(); if (trackMode !== 'remux') { renderWarnings(); } });
                 });
                 $('#dmHdr').addEventListener('change', function () { if (trackMode !== 'remux') { requestPreview(); } });
+                $('#dmToneStyle').addEventListener('change', function () { renderExtras(); requestEstimate(); requestPreview(); });
                 $('#dmPreviewFile').addEventListener('change', function () { loadFilmstrip($('#dmPreviewFile').value); });
                 bindRail();
                 $('#dmCheckDetail').addEventListener('click', checkDetail);

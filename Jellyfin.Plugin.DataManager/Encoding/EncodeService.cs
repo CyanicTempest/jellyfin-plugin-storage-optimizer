@@ -205,6 +205,7 @@ public sealed class EncodeService : IDisposable
                 AudioFormat = request.AudioFormat,
                 StereoAudio = request.StereoAudio,
                 Hdr = request.Hdr,
+                ToneMapStyle = request.ToneMapStyle ?? (Plugin.Instance?.Configuration.DefaultToneMapStyle ?? ToneMapStyle.Hable),
                 StripCoverArt = request.StripCoverArt,
                 StripFonts = request.StripFonts,
                 SourceBytes = item?.Size ?? 0,
@@ -393,6 +394,7 @@ public sealed class EncodeService : IDisposable
             AudioFormat = request.AudioFormat,
             StereoAudio = request.StereoAudio,
             Hdr = request.Hdr,
+            ToneMapStyle = request.ToneMapStyle,
             StripCoverArt = request.StripCoverArt,
             StripFonts = request.StripFonts
         };
@@ -654,20 +656,28 @@ public sealed class EncodeService : IDisposable
         try
         {
             var output = Path.Combine(folder, "preview.mkv");
-            await _speedEstimator.ExclusiveAsync(
-                () => _hardware.RunAsync(
-                    plan.Encoder,
-                    plan.Source,
-                    hw => FfmpegRunner.RunAsync(
-                        _mediaEncoder.EncoderPath,
-                        FfmpegArguments.BuildPreview(plan.Item.Path, output, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hw.Arguments, request.Hdr == HdrChoice.ToneMapToSdr),
-                        _previewTimeout,
-                        "encode the preview",
+            var (variants, device, style) = await PreviewVariantsAsync(plan.Encoder, request, plan.Source, cancellationToken).ConfigureAwait(false);
+            var used = await _speedEstimator.ExclusiveAsync(
+                () => RunVariantsAsync(
+                    variants,
+                    variant => _hardware.RunAsync(
+                        variant.Encoder,
+                        plan.Source,
+                        hw => FfmpegRunner.RunAsync(
+                            _mediaEncoder.EncoderPath,
+                            FfmpegArguments.BuildPreview(plan.Item.Path, output, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hw.Arguments, request.Hdr == HdrChoice.ToneMapToSdr, variant, style),
+                            _previewTimeout,
+                            "encode the preview",
+                            cancellationToken),
+                        null,
                         cancellationToken),
                     null,
                     cancellationToken),
                 cancellationToken).ConfigureAwait(false);
-            return await _frameComparer.ComparePreviewAsync(plan.Item, plan.Position, output, frames / 2, plan.File.FramesPerSecond, plan.File.ScaleTo, cancellationToken).ConfigureAwait(false);
+            RememberFallback(variants[0], used, device);
+            var comparison = await _frameComparer.ComparePreviewAsync(plan.Item, plan.Position, output, frames / 2, plan.File.FramesPerSecond, plan.File.ScaleTo, cancellationToken).ConfigureAwait(false);
+            comparison.Note = used.Note;
+            return comparison;
         }
         finally
         {
@@ -697,17 +707,23 @@ public sealed class EncodeService : IDisposable
             await _speedEstimator.ExclusiveAsync(
                 async () =>
                 {
-                    await _hardware.RunAsync(
-                        plan.Encoder,
-                        plan.Source,
-                        hw => FfmpegRunner.RunAsync(
-                            _mediaEncoder.EncoderPath,
-                            FfmpegArguments.BuildPreview(plan.Item.Path, encoded, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hw.Arguments, request.Hdr == HdrChoice.ToneMapToSdr),
-                            _clipTimeout,
-                            "encode the clip",
+                    var (variants, device, style) = await PreviewVariantsAsync(plan.Encoder, request, plan.Source, cancellationToken).ConfigureAwait(false);
+                    var used = await RunVariantsAsync(
+                        variants,
+                        variant => _hardware.RunAsync(
+                            variant.Encoder,
+                            plan.Source,
+                            hw => FfmpegRunner.RunAsync(
+                                _mediaEncoder.EncoderPath,
+                                FfmpegArguments.BuildPreview(plan.Item.Path, encoded, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hw.Arguments, request.Hdr == HdrChoice.ToneMapToSdr, variant, style),
+                                _clipTimeout,
+                                "encode the clip",
+                                cancellationToken),
+                            null,
                             cancellationToken),
                         null,
                         cancellationToken).ConfigureAwait(false);
+                    RememberFallback(variants[0], used, device);
                     await _frameComparer.StackClipAsync(plan.Item, plan.Position, encoded, frames, plan.File.Output, output, cancellationToken).ConfigureAwait(false);
                     return output;
                 },
@@ -1456,24 +1472,31 @@ public sealed class EncodeService : IDisposable
             var tags = await WriteTagsAsync(job, item, container, extras, config, cancellationToken).ConfigureAwait(false);
             tagsPath = tags?.TagsPath;
 
-            job.Message = "Encoding with " + encoder + (extras.ToneMap ? ", turning HDR into SDR…" : "…");
             var duration = TimeSpan.FromTicks(item.RunTimeTicks ?? 0);
             _speedEstimator.CancelTests();
-            await _hardware.RunAsync(
-                encoder,
+
+            // The usual way first; then, if the GPU refuses, the ways that get round it (see Variants).
+            var device = GpuParsing.DeviceKey(await _gpu.DetectAsync(cancellationToken).ConfigureAwait(false));
+            var variants = Variants(encoder, job.Codec, sourceInfo, extras.ToneMap, config, device);
+            var first = variants[0];
+            job.Message = "Encoding with " + first.Encoder + (extras.ToneMap ? ", turning HDR into SDR…" : "…");
+            var used = await RunVariantsAsync(
+                variants,
+                variant => _hardware.RunAsync(
+                variant.Encoder,
                 sourceInfo,
                 async hw =>
                 {
                     if (hw.FramesOnGpu)
                     {
-                        job.Message = "Encoding with " + encoder + ", keeping frames on the GPU…";
+                        job.Message = "Encoding with " + variant.Encoder + ", keeping frames on the GPU…";
                     }
                     else if (hw.Decoder is not null)
                     {
-                        job.Message = "Encoding with " + encoder + ", decoding on the GPU…";
+                        job.Message = "Encoding with " + variant.Encoder + ", decoding on the GPU…";
                     }
 
-                    var args = FfmpegArguments.Build(source.FullName, tempPath, encoder, job.Quality, job.Effort, sourceInfo, container, scaleTo, tags, hw.Arguments, tracks, extras, hw.FramesOnGpu);
+                    var args = FfmpegArguments.Build(source.FullName, tempPath, variant.Encoder, job.Quality, job.Effort, sourceInfo, container, scaleTo, tags, hw.Arguments, tracks, extras with { EightBit = variant.EightBit, ConstantQp = variant.ConstantQp }, hw.FramesOnGpu);
                     await RunFfmpegAsync(args, duration, (long)size.Width * size.Height, job, cancellationToken).ConfigureAwait(false);
                     return true;
                 },
@@ -1482,17 +1505,31 @@ public sealed class EncodeService : IDisposable
                     job.Progress = 0;
                     job.RemainingSeconds = null;
                     job.Message = next.Decoder is null
-                        ? "The GPU couldn't decode this file, so decoding on the CPU and encoding with " + encoder + "…"
-                        : "Keeping frames on the GPU didn't work for this file, so copying them back and encoding with " + encoder + "…";
+                        ? "The GPU couldn't decode this file, so decoding on the CPU and encoding with " + variant.Encoder + "…"
+                        : "Keeping frames on the GPU didn't work for this file, so copying them back and encoding with " + variant.Encoder + "…";
                 },
                 cancellationToken,
 
                 // Scaling and tone mapping run on the CPU, which wants the frames in system memory.
-                keepFrames: config.KeepFramesOnGpu && scaleTo is null && !extras.ToneMap && !extras.Deinterlace).ConfigureAwait(false);
+                keepFrames: config.KeepFramesOnGpu && scaleTo is null && !extras.ToneMap && !extras.Deinterlace),
+                (failed, next, error) =>
+                {
+                    job.Progress = 0;
+                    job.RemainingSeconds = null;
+                    job.Message = next.Note + " Encoding with " + next.Encoder + "…";
+                },
+                cancellationToken).ConfigureAwait(false);
+            job.Encoder = used.Encoder;
+            if (used.Note is not null)
+            {
+                job.TracksNote = string.Join(" ", new[] { job.TracksNote, used.Note }.Where(n => !string.IsNullOrEmpty(n)));
+            }
+
+            RememberFallback(first, used, device);
 
             // The new file's video, without the copied audio, against what the rule of thumb expected. Tone mapping
             // slows encoding down, so its speed would mislead estimates for plain encodes and isn't kept.
-            if (!extras.ToneMap)
+            if (!extras.ToneMap && used == first)
             {
                 var copiedBitrate = tracks is null ? SavingsEstimator.AudioBitrate(audioBitrate) : keptAudioBitrate!.Value + tracks.KeptSubtitleBitRate;
                 var videoBitrate = file.DurationSeconds > 0 ? (new FileInfo(tempPath).Length * 8 / file.DurationSeconds) - copiedBitrate : 0;
@@ -1717,9 +1754,10 @@ public sealed class EncodeService : IDisposable
         }
 
         var toneMap = job.Hdr == HdrChoice.ToneMapToSdr && sourceInfo.IsHdr && !job.IsRemux;
+        var style = ToneStyle(job.ToneMapStyle);
         if (toneMap)
         {
-            notes.Add("Turned HDR into SDR.");
+            notes.Add("Turned HDR into SDR (" + ToneMapping.Label(style) + ")." + (style != job.ToneMapStyle ? " This server's ffmpeg can't do " + ToneMapping.Label(job.ToneMapStyle) + ", so Hable was used." : string.Empty));
         }
 
         // Reading the file through, when switched on, finds broken timestamps and the like before encoding.
@@ -1757,8 +1795,142 @@ public sealed class EncodeService : IDisposable
             Rewrites = PlanRewrites(job, tracks, audio),
             Deinterlace = deinterlace,
             RebuildTimestamps = rebuild,
-            HdrBrightness = brightness
+            HdrBrightness = brightness,
+            ToneMapStyle = style
         };
+    }
+
+    // BT.2390 needs jellyfin-ffmpeg's tonemapx; without it, Hable.
+    private ToneMapStyle ToneStyle(ToneMapStyle wanted)
+        => wanted == ToneMapStyle.Bt2390 && !_mediaEncoder.SupportsFilter("tonemapx") ? ToneMapStyle.Hable : wanted;
+
+    private const string IcqNote = "The GPU's driver refused its constant-quality mode (ICQ), so a constant quantizer was used.";
+
+    /// <summary>
+    /// Gets the ways to encode a video, best first, each tried when the one before fails. A GPU that can't encode
+    /// 10-bit video (Intel before Kaby Lake, for one) still encodes a picture turned into SDR, in 8-bit; a 10-bit SDR
+    /// picture only in 8-bit if the settings allow it, as it can band; and otherwise the CPU takes over, which also
+    /// keeps HDR. QSV tries a constant quantizer when its driver refuses ICQ. What a GPU was found unable to do is
+    /// skipped from then on.
+    /// </summary>
+    /// <param name="encoder">The encoder the codec would use.</param>
+    /// <param name="codec">The codec.</param>
+    /// <param name="source">The original video.</param>
+    /// <param name="toneMap">Whether HDR is turned into SDR.</param>
+    /// <param name="config">The settings.</param>
+    /// <param name="device">The GPU, as <see cref="GpuParsing.DeviceKey"/> gives it.</param>
+    /// <returns>The ways, at least one.</returns>
+    internal IReadOnlyList<VideoVariant> Variants(string encoder, TargetCodec codec, SourceVideo source, bool toneMap, PluginConfiguration config, string device)
+        => Variants(encoder, source, toneMap, config, device, CpuEncoder(codec));
+
+    internal static IReadOnlyList<VideoVariant> Variants(string encoder, SourceVideo source, bool toneMap, PluginConfiguration config, string device, string? cpuEncoder)
+    {
+        if (encoder.StartsWith("lib", StringComparison.Ordinal))
+        {
+            return [new VideoVariant(encoder)];
+        }
+
+        var qsv = encoder.EndsWith("_qsv", StringComparison.Ordinal);
+        var noIcq = qsv && device.Length > 0 && config.GpuNoIcq == device;
+        var tenBit = FfmpegArguments.WantsTenBit(encoder, source, toneMap);
+        var noTenBit = tenBit && device.Length > 0 && config.GpuNoTenBit == device;
+        bool[] quantizers = qsv ? (noIcq ? [true] : [false, true]) : [false];
+        var list = new List<VideoVariant>();
+        if (!noTenBit)
+        {
+            list.AddRange(quantizers.Select(qp => new VideoVariant(encoder, false, qp, qp && !noIcq ? IcqNote : null)));
+        }
+
+        if (tenBit)
+        {
+            var eightBit = toneMap && source.IsHdr
+                ? "This GPU can't encode 10-bit video, so the picture turned into SDR was encoded in 8-bit on it."
+                : !source.IsHdr && config.AllowEightBitOnGpu ? "This GPU can't encode 10-bit video, so it was encoded in 8-bit, which can show banding in skies and shadows." : null;
+            if (eightBit is not null)
+            {
+                list.AddRange(quantizers.Select(qp => new VideoVariant(encoder, true, qp, eightBit)));
+            }
+
+            if (!config.NeverEncodeOnCpu && cpuEncoder is not null)
+            {
+                list.Add(new VideoVariant(cpuEncoder, false, false, "This GPU can't encode 10-bit video, so it was encoded on the CPU" + (source.IsHdr && !toneMap ? ", which keeps HDR" : string.Empty) + "."));
+            }
+        }
+
+        if (list.Count == 0)
+        {
+            throw new InvalidOperationException("This GPU can't encode 10-bit video, and encoding on the CPU is switched off in the settings."
+                + (source.IsHdr ? " Turn HDR into SDR to encode it in 8-bit on the GPU." : " Allow 8-bit on the GPU in the settings to encode it there.") + " The original was not changed.");
+        }
+
+        return list;
+    }
+
+    // The CPU encoder for a codec, if this ffmpeg has it.
+    private string? CpuEncoder(TargetCodec codec)
+    {
+        var name = codec switch
+        {
+            TargetCodec.Av1 => "libsvtav1",
+            TargetCodec.H264 => "libx264",
+            _ => "libx265"
+        };
+        return _mediaEncoder.SupportsEncoder(name) ? name : null;
+    }
+
+    // A preview is encoded the way the real encode would be, so it falls back the same way and shows the same style.
+    private async Task<(IReadOnlyList<VideoVariant> Variants, string Device, ToneMapStyle Style)> PreviewVariantsAsync(string encoder, EncodePreviewRequest request, SourceVideo source, CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var device = GpuParsing.DeviceKey(await _gpu.DetectAsync(cancellationToken).ConfigureAwait(false));
+        var toneMap = request.Hdr == HdrChoice.ToneMapToSdr && source.IsHdr;
+        return (Variants(encoder, request.Codec, source, toneMap, config, device), device, ToneStyle(request.ToneMapStyle ?? config.DefaultToneMapStyle));
+    }
+
+    // Tries each way in turn, moving on when ffmpeg fails, and says which one worked.
+    private async Task<VideoVariant> RunVariantsAsync<T>(IReadOnlyList<VideoVariant> variants, Func<VideoVariant, Task<T>> run, Action<VideoVariant, VideoVariant, InvalidOperationException>? onNext, CancellationToken cancellationToken)
+    {
+        for (var i = 0; ; i++)
+        {
+            try
+            {
+                await run(variants[i]).ConfigureAwait(false);
+                return variants[i];
+            }
+            catch (InvalidOperationException ex) when (i < variants.Count - 1 && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Storage Optimizer's encode with {Encoder} failed, so it is trying {Next}: {Error}", variants[i].Encoder, variants[i + 1].Note ?? variants[i + 1].Encoder, ex.Message);
+                onNext?.Invoke(variants[i], variants[i + 1], ex);
+            }
+        }
+    }
+
+    // What a GPU turned out not to do is kept, so later encodes go straight to the way that works.
+    private static void RememberFallback(VideoVariant first, VideoVariant used, string device)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || used == first || device.Length == 0)
+        {
+            return;
+        }
+
+        var changed = false;
+        if (used.ConstantQp && !first.ConstantQp && config.GpuNoIcq != device)
+        {
+            config.GpuNoIcq = device;
+            changed = true;
+        }
+
+        if ((used.EightBit || used.Encoder != first.Encoder) && config.GpuNoTenBit != device)
+        {
+            config.GpuNoTenBit = device;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            Plugin.Instance!.SaveConfiguration();
+        }
     }
 
     // ffmpeg runs below normal priority unless the settings say otherwise, so the server stays quick to use.

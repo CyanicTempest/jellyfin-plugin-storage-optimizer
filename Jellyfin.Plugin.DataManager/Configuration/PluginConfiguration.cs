@@ -205,6 +205,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public string[] HiddenDrives { get; set; } = [];
 #pragma warning restore CA1819
 
+    /// <summary>Gets or sets how HDR is fitted into SDR when the window turns HDR into SDR. Each run can still change it.</summary>
+    public ToneMapStyle DefaultToneMapStyle { get; set; } = ToneMapStyle.Hable;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a 10-bit SDR video may be encoded in 8-bit on a GPU that can't encode
+    /// 10-bit, rather than on the CPU. 8-bit can show banding in skies and shadows. Off unless switched on.
+    /// </summary>
+    public bool AllowEightBitOnGpu { get; set; }
+
+    /// <summary>Gets or sets the GPU that was found unable to encode 10-bit video, so encodes skip trying, or empty.</summary>
+    public string GpuNoTenBit { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the QSV GPU whose driver refused ICQ, so encodes use a constant quantizer, or empty.</summary>
+    public string GpuNoIcq { get; set; } = string.Empty;
+
     /// <summary>
     /// Gets or sets the GPU the last test ran on, so a test of a different card isn't trusted.
     /// </summary>

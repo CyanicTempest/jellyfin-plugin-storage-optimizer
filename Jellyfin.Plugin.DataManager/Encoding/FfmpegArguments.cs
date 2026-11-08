@@ -101,7 +101,7 @@ public static class FfmpegArguments
         }
 
         var copy = encoder == CopyVideo;
-        args.AddRange(copy ? ["-c:v:0", "copy"] : VideoArguments(encoder, quality, effort, source, scaleTo, extras.ToneMap, framesOnGpu, extras.Deinterlace, extras.HdrBrightness));
+        args.AddRange(copy ? ["-c:v:0", "copy"] : VideoArguments(encoder, quality, effort, source, scaleTo, extras.ToneMap, framesOnGpu, extras.Deinterlace, extras.HdrBrightness, extras.EightBit, extras.ConstantQp, extras.ToneMapStyle));
 
         // Dolby Vision's enhancement layer (NAL type 63) and metadata (62) ride inside the HEVC video; removing them,
         // and the record that says they're there, leaves the HDR10 or HLG picture beneath.
@@ -313,8 +313,10 @@ public static class FfmpegArguments
     /// <param name="scaleTo">The size to scale the video to, or null to keep its size.</param>
     /// <param name="hardware">Arguments that set up the GPU, which go before the input, or null for none.</param>
     /// <param name="toneMap">Whether to turn HDR into SDR.</param>
+    /// <param name="variant">How the video is encoded, when it isn't the usual way.</param>
+    /// <param name="style">How HDR is fitted into SDR.</param>
     /// <returns>The arguments, one per entry.</returns>
-    public static IList<string> BuildPreview(string inputPath, string outputPath, double startSeconds, int frames, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, IReadOnlyList<string>? hardware = null, bool toneMap = false)
+    public static IList<string> BuildPreview(string inputPath, string outputPath, double startSeconds, int frames, string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, IReadOnlyList<string>? hardware = null, bool toneMap = false, VideoVariant? variant = null, ToneMapStyle style = ToneMapStyle.Hable)
     {
         ArgumentNullException.ThrowIfNull(encoder);
         ArgumentNullException.ThrowIfNull(source);
@@ -326,9 +328,48 @@ public static class FfmpegArguments
             "-ss", startSeconds.ToString("0.###", CultureInfo.InvariantCulture), "-i", inputPath,
             "-map", "0:V:0", "-frames:v", frames.ToString(CultureInfo.InvariantCulture)
         ]);
-        args.AddRange(VideoArguments(encoder, quality, effort, source, scaleTo, toneMap));
+        args.AddRange(VideoArguments(variant?.Encoder ?? encoder, quality, effort, source, scaleTo, toneMap, eightBit: variant?.EightBit ?? false, constantQp: variant?.ConstantQp ?? false, style: style));
         args.AddRange(["-an", "-sn", "-f", "matroska", outputPath]);
         return args;
+    }
+
+    /// <summary>
+    /// Builds a second-long encode of a generated picture, to find out whether a GPU encoder takes 10-bit video and a
+    /// quality level. Nothing is written.
+    /// </summary>
+    /// <param name="encoder">The ffmpeg encoder.</param>
+    /// <param name="quality">The quality level.</param>
+    /// <param name="tenBit">Whether the picture is 10-bit.</param>
+    /// <param name="hardware">Arguments that set up the GPU.</param>
+    /// <param name="constantQp">Whether QSV uses a constant quantizer.</param>
+    /// <returns>The arguments.</returns>
+    public static IList<string> BuildCapabilityTest(string encoder, QualityPreset quality, bool tenBit, IReadOnlyList<string>? hardware, bool constantQp = false)
+    {
+        ArgumentNullException.ThrowIfNull(encoder);
+        var source = new SourceVideo(IsMatroska: true, IsMp4: false, IsTenBit: tenBit, IsHdr: false, ColorTransfer: null);
+        var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-v", "error" };
+        args.AddRange(hardware ?? []);
+        args.AddRange(["-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24,format=" + (tenBit ? "yuv420p10le" : "yuv420p"), "-frames:v", "24"]);
+        args.AddRange(VideoArguments(encoder, quality, EncodeEffort.Faster, source, null, constantQp: constantQp));
+        args.AddRange(["-f", "null", "-"]);
+        return args;
+    }
+
+    /// <summary>
+    /// Gets whether an encode of this source would make 10-bit video.
+    /// </summary>
+    /// <param name="encoder">The ffmpeg encoder.</param>
+    /// <param name="source">The source.</param>
+    /// <param name="toneMap">Whether HDR is turned into SDR.</param>
+    /// <returns>True for 10-bit.</returns>
+    public static bool WantsTenBit(string encoder, SourceVideo source, bool toneMap)
+    {
+        ArgumentNullException.ThrowIfNull(encoder);
+        ArgumentNullException.ThrowIfNull(source);
+        toneMap = toneMap && source.IsHdr;
+        var h264 = encoder == "libx264" || encoder.StartsWith("h264_", StringComparison.Ordinal);
+        var vaapi = encoder.EndsWith("_vaapi", StringComparison.Ordinal);
+        return (source.IsTenBit || source.IsHdr) && !(toneMap && h264) && !(vaapi && h264);
     }
 
     /// <summary>
@@ -364,7 +405,7 @@ public static class FfmpegArguments
         return VideoArguments(encoder, quality, effort, source, null);
     }
 
-    private static List<string> VideoArguments(string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, bool toneMap = false, bool framesOnGpu = false, bool deinterlace = false, Services.HdrBrightness? brightness = null)
+    private static List<string> VideoArguments(string encoder, QualityPreset quality, EncodeEffort effort, SourceVideo source, (int Width, int Height)? scaleTo, bool toneMap = false, bool framesOnGpu = false, bool deinterlace = false, Services.HdrBrightness? brightness = null, bool eightBit = false, bool constantQp = false, ToneMapStyle style = ToneMapStyle.Hable)
     {
         var args = new List<string> { "-c:v", encoder };
 
@@ -372,7 +413,7 @@ public static class FfmpegArguments
         // mapping and deinterlacing here run on the CPU, which wants the frames in system memory, so they never go
         // together; and the pixel format is already right, so asking for one would make ffmpeg copy them back to change it.
         framesOnGpu = framesOnGpu && scaleTo is null && !toneMap && !deinterlace;
-        args.AddRange(QualityArguments(encoder, quality, effort));
+        args.AddRange(QualityArguments(encoder, quality, effort, constantQp));
 
         // Tone mapping only applies to HDR; afterwards the picture is SDR. H.264 is kept 8-bit, as players expect;
         // HEVC and AV1 stay 10-bit, which keeps skies and shadows from banding at no cost in size.
@@ -381,8 +422,9 @@ public static class FfmpegArguments
         var h264 = encoder == "libx264" || encoder.StartsWith("h264_", StringComparison.Ordinal);
         var vaapi = encoder.EndsWith("_vaapi", StringComparison.Ordinal);
 
-        // VAAPI's H.264 encoder only does 8-bit.
-        var tenBit = (source.IsTenBit || source.IsHdr) && !(toneMap && h264) && !(vaapi && h264);
+        // VAAPI's H.264 encoder only does 8-bit, and so do older GPUs, for which the video is made 8-bit on purpose.
+        var tenBit = WantsTenBit(encoder, source, toneMap) && !eightBit;
+        hdr = hdr && tenBit;
 
         // The GPU encoders that take frames from system memory want 10-bit as P010.
         var p010 = encoder.EndsWith("_videotoolbox", StringComparison.Ordinal) || encoder.EndsWith("_qsv", StringComparison.Ordinal) || encoder.EndsWith("_nvenc", StringComparison.Ordinal);
@@ -399,7 +441,7 @@ public static class FfmpegArguments
 
         if (toneMap)
         {
-            filters.Add(ToneMapping.Filter(tenBit ? "yuv420p10le" : "yuv420p"));
+            filters.Add(ToneMapping.Filter(tenBit ? "yuv420p10le" : "yuv420p", style));
         }
 
         if (scaleTo is { } size)
@@ -462,7 +504,7 @@ public static class FfmpegArguments
 
     // Each encoder's own scale for the six qualities, chosen so the same quality looks about the same whichever
     // encoder makes it, and its presets for the four efforts.
-    private static List<string> QualityArguments(string encoder, QualityPreset quality, EncodeEffort effort)
+    private static List<string> QualityArguments(string encoder, QualityPreset quality, EncodeEffort effort, bool constantQp = false)
     {
         string Pick(ReadOnlySpan<int> levels) => levels[Math.Clamp((int)quality, 0, levels.Length - 1)].ToString(CultureInfo.InvariantCulture);
         string Speed(string faster, string standard, string slower, string slowest) => effort switch
@@ -479,8 +521,11 @@ public static class FfmpegArguments
             "libx264" => ["-preset", Speed("medium", "slow", "slower", "veryslow"), "-crf", Pick([14, 16, 18, 20, 23, 26])],
             "libsvtav1" => ["-preset", Speed("8", "6", "4", "3"), "-crf", Pick([18, 21, 24, 28, 32, 36])],
             _ when encoder.EndsWith("_nvenc", StringComparison.Ordinal) => ["-preset", Speed("p3", "p5", "p6", "p7"), "-rc", "vbr", "-cq", Pick([17, 19, 21, 24, 28, 31]), "-b:v", "0"],
-            // QSV's ICQ mode: constant quality on a scale like x264's CRF.
-            _ when encoder.EndsWith("_qsv", StringComparison.Ordinal) => ["-preset", Speed("faster", "medium", "slow", "veryslow"), "-global_quality", Pick([18, 20, 22, 25, 28, 31])],
+            // QSV's ICQ mode: constant quality on a scale like x264's CRF. Some drivers, such as Linux's iHD on older
+            // chips, refuse ICQ; a constant quantizer (-q:v) on the same scale is the fallback.
+            _ when encoder.EndsWith("_qsv", StringComparison.Ordinal) => constantQp
+                ? ["-preset", Speed("faster", "medium", "slow", "veryslow"), "-q:v", Pick([18, 20, 22, 25, 28, 31])]
+                : ["-preset", Speed("faster", "medium", "slow", "veryslow"), "-global_quality", Pick([18, 20, 22, 25, 28, 31])],
             _ when encoder.EndsWith("_videotoolbox", StringComparison.Ordinal) => ["-q:v", Pick([80, 75, 70, 62, 52, 45])],
             _ when encoder.EndsWith("_amf", StringComparison.Ordinal) => ["-quality", effort == EncodeEffort.Faster ? "balanced" : "quality", "-rc", "cqp", "-qp_i", Pick([16, 18, 20, 23, 26, 29]), "-qp_p", Pick([18, 20, 22, 25, 28, 31])],
             // VAAPI has no presets, so every effort is the same. A constant quantizer on a scale like QSV's.

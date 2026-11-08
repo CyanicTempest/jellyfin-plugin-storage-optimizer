@@ -97,6 +97,15 @@ public sealed record EncodeExtras(IReadOnlyList<AudioConversion> Audio, bool Ton
     /// <summary>Gets the original's HDR10 brightness information, which x265 is told to write, or null.</summary>
     public Services.HdrBrightness? HdrBrightness { get; init; }
 
+    /// <summary>Gets how HDR is fitted into SDR when it's tone mapped.</summary>
+    public ToneMapStyle ToneMapStyle { get; init; }
+
+    /// <summary>Gets a value indicating whether the new video is made 8-bit, for a GPU that can't encode 10-bit.</summary>
+    public bool EightBit { get; init; }
+
+    /// <summary>Gets a value indicating whether QSV uses a constant quantizer instead of ICQ.</summary>
+    public bool ConstantQp { get; init; }
+
     /// <summary>Gets extras that change nothing.</summary>
     public static EncodeExtras None { get; } = new([], false, null, null, false);
 }
@@ -271,16 +280,72 @@ public static class AudioConverter
 }
 
 /// <summary>
+/// How HDR's brighter highlights are fitted into SDR when HDR is turned into SDR.
+/// </summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum ToneMapStyle
+{
+    /// <summary>Hable (filmic): keeps highlights from clipping, with a slightly darker, contrasty look.</summary>
+    Hable,
+
+    /// <summary>BT.2390, the broadcast standard's curve: brighter and closer to the HDR picture. Needs Jellyfin's ffmpeg.</summary>
+    Bt2390,
+
+    /// <summary>Mobius: keeps most of the picture as it is and only rolls off the brightest parts.</summary>
+    Mobius,
+
+    /// <summary>Reinhard: gentle and even, a little flat.</summary>
+    Reinhard
+}
+
+/// <summary>
 /// The video filters and settings that turn HDR into SDR.
 /// </summary>
 public static class ToneMapping
 {
     /// <summary>
-    /// Gets the filter that maps HDR10 or HLG down to SDR BT.709, keeping highlights from clipping (Hable), and
-    /// leaves it in a format the encoder takes.
+    /// Gets the filter that maps HDR10 or HLG down to SDR BT.709 in the chosen style, and leaves it in a format the
+    /// encoder takes.
     /// </summary>
     /// <param name="pixelFormat">The pixel format the encoder wants afterwards.</param>
+    /// <param name="style">The style. BT.2390 needs jellyfin-ffmpeg's tonemapx filter.</param>
     /// <returns>The filter.</returns>
-    public static string Filter(string pixelFormat)
-        => "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=" + pixelFormat;
+    public static string Filter(string pixelFormat, ToneMapStyle style = ToneMapStyle.Hable)
+    {
+        if (style == ToneMapStyle.Bt2390)
+        {
+            return "tonemapx=tonemap=bt2390:desat=0:t=bt709:m=bt709:p=bt709:format=" + pixelFormat;
+        }
+
+        var curve = style switch
+        {
+            ToneMapStyle.Mobius => "mobius",
+            ToneMapStyle.Reinhard => "reinhard",
+            _ => "hable"
+        };
+        return "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=" + curve + ":desat=0,zscale=t=bt709:m=bt709:r=tv,format=" + pixelFormat;
+    }
+
+    /// <summary>
+    /// Gets a style's name as the page shows it.
+    /// </summary>
+    /// <param name="style">The style.</param>
+    /// <returns>The name, such as "BT.2390".</returns>
+    public static string Label(ToneMapStyle style) => style switch
+    {
+        ToneMapStyle.Bt2390 => "BT.2390",
+        ToneMapStyle.Mobius => "Mobius",
+        ToneMapStyle.Reinhard => "Reinhard",
+        _ => "Hable"
+    };
 }
+
+/// <summary>
+/// One way to encode the video, tried in turn when the one before fails: the encoder, whether the picture is made
+/// 8-bit for a GPU that can't encode 10-bit, and whether QSV uses a constant quantizer instead of ICQ.
+/// </summary>
+/// <param name="Encoder">The ffmpeg encoder.</param>
+/// <param name="EightBit">Whether the new video is 8-bit even though the original is 10-bit.</param>
+/// <param name="ConstantQp">Whether QSV uses a constant quantizer, which drivers refuse less often than ICQ.</param>
+/// <param name="Note">What the job says when this way is used, or null for the first way.</param>
+public sealed record VideoVariant(string Encoder, bool EightBit = false, bool ConstantQp = false, string? Note = null);

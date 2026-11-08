@@ -375,12 +375,16 @@ public sealed class GpuTester : IDisposable
             return Failed(failure);
         }
 
+        // Whether the GPU takes 10-bit video and the whole range of qualities, which older GPUs and drivers don't.
+        var device = GpuParsing.DeviceKey(info);
+        var abilities = await _speed.ExclusiveAsync(() => AbilitiesAsync(encoder, cancellationToken), cancellationToken).ConfigureAwait(false);
         var finished = DateTime.UtcNow;
         var summary = string.Join(
             ' ',
             new[]
             {
                 Summary(speeds.Speeds),
+                abilities.Note,
                 speeds.DecoderNote,
                 speeds.Diagnosis,
                 speeds.FramesNote,
@@ -393,11 +397,86 @@ public sealed class GpuTester : IDisposable
             config.GpuTestedAt = finished;
             config.GpuTestSpeeds = GpuParsing.FormatSpeeds(speeds.Speeds);
             config.GpuTestDetails = System.Text.Json.JsonSerializer.Serialize(new GpuTestDetails(speeds.Passes, speeds.Decoder, frameRate, summary));
+            if (abilities.TenBit is { } tenBit)
+            {
+                config.GpuNoTenBit = tenBit ? string.Empty : device;
+            }
+
+            if (abilities.Icq is { } icq)
+            {
+                config.GpuNoIcq = icq ? string.Empty : device;
+            }
             Plugin.Instance!.SaveConfiguration();
         }
 
         _logger.LogInformation("Storage Optimizer's GPU test of {Gpu} on {Clip} with {Encoder}: {Speeds}", info.Name, clipName, encoder, GpuParsing.FormatSpeeds(speeds.Speeds));
         return new GpuTestStatus("Done", speeds.Speeds.Count, GpuParsing.MostAtOnce, speeds.Speeds, GpuParsing.SweetSpot(speeds.Speeds), summary, clipName, finished, speeds.Passes, speeds.Decoder, frameRate);
+    }
+
+    // A second of a generated picture through the encoder, in 8-bit at the ends of the quality range and in
+    // 10-bit, and for QSV with ICQ and with a constant quantizer.
+    private async Task<(bool? TenBit, bool? Icq, string? Note)> AbilitiesAsync(string encoder, CancellationToken cancellationToken)
+    {
+        var plain = new SourceVideo(IsMatroska: true, IsMp4: false, IsTenBit: false, IsHdr: false, ColorTransfer: null);
+        var setup = _hardware.Plan(encoder, plain, false);
+        async Task<bool> Works(QualityPreset quality, bool tenBit, bool constantQp)
+        {
+            try
+            {
+                await FfmpegRunner.RunAsync(_mediaEncoder.EncoderPath, FfmpegArguments.BuildCapabilityTest(encoder, quality, tenBit, setup.Arguments, constantQp), TimeSpan.FromSeconds(60), "test the encoder", cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or TimeoutException)
+            {
+                _logger.LogInformation("Storage Optimizer's GPU test: {Encoder} at {Quality}{Depth}{Mode} failed: {Error}", encoder, quality, tenBit ? " in 10-bit" : string.Empty, constantQp ? " with a constant quantizer" : string.Empty, ex.Message);
+                return false;
+            }
+        }
+
+        var qsv = encoder.EndsWith("_qsv", StringComparison.Ordinal);
+        bool? icq = null;
+        var constantQp = false;
+        if (qsv)
+        {
+            icq = await Works(QualityPreset.Balanced, false, false).ConfigureAwait(false);
+            if (icq == false && await Works(QualityPreset.Balanced, false, true).ConfigureAwait(false))
+            {
+                constantQp = true;
+            }
+            else if (icq == false)
+            {
+                icq = null;
+            }
+        }
+
+        var failedLevels = new List<string>();
+        foreach (var level in new[] { QualityPreset.NearIdentical, QualityPreset.Smallest })
+        {
+            if (!await Works(level, false, constantQp).ConfigureAwait(false))
+            {
+                failedLevels.Add(level == QualityPreset.NearIdentical ? "Near-identical" : "Smallest");
+            }
+        }
+
+        // H.264 on a GPU is 8-bit only, so there's nothing to learn from it.
+        bool? tenBit = encoder.StartsWith("h264_", StringComparison.Ordinal) ? null : await Works(QualityPreset.Balanced, true, constantQp).ConfigureAwait(false);
+        var notes = new List<string>();
+        if (tenBit == false)
+        {
+            notes.Add("This GPU can't encode 10-bit video, so 10-bit and HDR files are encoded on the CPU, or in 8-bit on the GPU when HDR is turned into SDR.");
+        }
+
+        if (constantQp)
+        {
+            notes.Add("Its driver refuses QSV's constant-quality mode (ICQ), so encodes use a constant quantizer instead.");
+        }
+
+        if (failedLevels.Count > 0)
+        {
+            notes.Add("It refused the " + string.Join(" and ", failedLevels) + " quality" + (failedLevels.Count == 1 ? " level" : " levels") + "; encodes at " + (failedLevels.Count == 1 ? "that level" : "those levels") + " may fail on it.");
+        }
+
+        return (tenBit, icq, notes.Count == 0 ? (tenBit == true ? "It encodes 10-bit video too." : null) : string.Join(' ', notes));
     }
 
     // Each number at once is timed twice: one, two, three, four, then back down. Whatever drifts during the test, such

@@ -208,6 +208,9 @@ public class EncodeRequest
     /// <summary>Gets or sets what happens to HDR and Dolby Vision.</summary>
     public HdrChoice Hdr { get; set; } = HdrChoice.Keep;
 
+    /// <summary>Gets or sets how HDR is fitted into SDR when it's tone mapped, or null for the settings' style.</summary>
+    public ToneMapStyle? ToneMapStyle { get; set; }
+
     /// <summary>Gets or sets a value indicating whether to leave out cover art and other pictures attached to the file.</summary>
     public bool StripCoverArt { get; set; }
 
@@ -264,6 +267,9 @@ public class EncodePreviewRequest
 
     /// <summary>Gets or sets what happens to HDR. Only tone mapping changes the preview.</summary>
     public HdrChoice Hdr { get; set; } = HdrChoice.Keep;
+
+    /// <summary>Gets or sets how HDR is fitted into SDR when it's tone mapped, or null for the settings' style.</summary>
+    public ToneMapStyle? ToneMapStyle { get; set; }
 }
 
 /// <summary>
@@ -364,6 +370,9 @@ public class EncodeJob
 
     /// <summary>Gets or sets what happens to HDR and Dolby Vision.</summary>
     public HdrChoice Hdr { get; set; }
+
+    /// <summary>Gets or sets how HDR is fitted into SDR when it's tone mapped.</summary>
+    public ToneMapStyle ToneMapStyle { get; set; }
 
     /// <summary>Gets or sets a value indicating whether cover art is left out.</summary>
     public bool StripCoverArt { get; set; }
