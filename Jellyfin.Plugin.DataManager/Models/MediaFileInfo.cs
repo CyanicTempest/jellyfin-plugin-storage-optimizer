@@ -24,6 +24,9 @@ public class MediaFileInfo
     /// <summary>Gets or sets the library the file belongs to.</summary>
     public string Library { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the id of the drive the file is on, filled in for the overview, or null if it isn't known.</summary>
+    public string? DriveId { get; set; }
+
     /// <summary>Gets or sets the file size in bytes.</summary>
     public long SizeBytes { get; set; }
 

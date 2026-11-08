@@ -90,6 +90,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool KeepFramesOnGpu { get; set; }
 
     /// <summary>
+    /// Gets or sets the ids of the drives the overview leaves out. Drives not listed are shown, so a new drive shows up
+    /// on its own. Encodes still check a hidden drive's free space.
+    /// </summary>
+#pragma warning disable CA1819 // Jellyfin saves settings as XML, which needs an array here.
+    public string[] HiddenDrives { get; set; } = [];
+#pragma warning restore CA1819
+
+    /// <summary>
     /// Gets or sets the GPU the last test ran on, so a test of a different card isn't trusted.
     /// </summary>
     public string GpuTestedDevice { get; set; } = string.Empty;

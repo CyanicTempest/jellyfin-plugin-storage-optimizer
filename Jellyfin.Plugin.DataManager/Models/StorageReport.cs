@@ -44,10 +44,13 @@ public class StorageSummary
     /// <summary>Gets or sets the number of files.</summary>
     public int FileCount { get; set; }
 
-    /// <summary>Gets or sets the free space in bytes across the drives holding the libraries, or -1 if unknown.</summary>
+    /// <summary>Gets the drives holding the libraries, one per disk, with the hidden ones marked.</summary>
+    public IList<Services.StorageDrive> Drives { get; init; } = [];
+
+    /// <summary>Gets or sets the free space in bytes across the drives the overview shows, or -1 if unknown.</summary>
     public long FreeBytes { get; set; } = -1;
 
-    /// <summary>Gets or sets the total size in bytes of the drives holding the libraries, or -1 if unknown.</summary>
+    /// <summary>Gets or sets the total size in bytes of the drives the overview shows, or -1 if unknown.</summary>
     public long DriveTotalBytes { get; set; } = -1;
 
     /// <summary>Gets the size per library.</summary>

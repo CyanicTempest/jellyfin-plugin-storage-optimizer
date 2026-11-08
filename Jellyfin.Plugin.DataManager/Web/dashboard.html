@@ -138,9 +138,10 @@
             #DataManagerDashboardPage .dm-stat-l { font-size: 13px; color: var(--dm-ink-2); }
             #DataManagerDashboardPage .dm-callout { display: flex; align-items: center; gap: 20px; padding: 14px 14px 14px 20px; border-radius: 10px; background: var(--dm-tint); border: 1px solid var(--dm-accent-line); }
             #DataManagerDashboardPage .dm-callout .dm-stat-n { color: var(--dm-tint-ink); }
-            #DataManagerDashboardPage .dm-bars { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; font-size: 13px; }
+            #DataManagerDashboardPage .dm-bars { display: grid; grid-template-columns: minmax(76px, max-content) minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; font-size: 13px; }
             #DataManagerDashboardPage .dm-bar-item { display: contents; }
-            #DataManagerDashboardPage .dm-bar-name { color: var(--dm-ink-2); }
+            #DataManagerDashboardPage .dm-bar-name { color: var(--dm-ink-2); max-width: 150px; }
+            #DataManagerDashboardPage .dm-bar-name .dm-chip { height: 18px; padding: 0 6px; margin-left: 6px; font-size: 11px; vertical-align: 1px; }
             #DataManagerDashboardPage .dm-bar-detail { text-align: right; white-space: nowrap; color: var(--dm-ink-3); font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-bar-gap { grid-column: 1 / -1; height: 6px; }
             #DataManagerDashboardPage .dm-bar-track { display: flex; min-width: 0; }
@@ -1455,7 +1456,7 @@
 
                 // One labelled bar. Each segment can end in a hatched part: the bytes re-encoding could free.
                 // share sets the bar's length, so library bars can share one scale.
-                function addBar(container, label, segments, detail, share) {
+                function addBar(container, label, segments, detail, share, badge) {
                     var whole = segments.reduce(function (sum, s) { return sum + s.size; }, 0) || 1;
                     var item = document.createElement('div');
                     item.className = 'dm-bar-item';
@@ -1489,6 +1490,12 @@
                     var name = document.createElement('span');
                     name.className = 'dm-bar-name';
                     name.textContent = label;
+                    if (badge) {
+                        var chip = document.createElement('span');
+                        chip.className = 'dm-chip';
+                        chip.textContent = badge;
+                        name.appendChild(chip);
+                    }
                     var size = document.createElement('span');
                     size.className = 'dm-bar-detail';
                     size.textContent = detail;
@@ -1517,23 +1524,63 @@
                     return top.concat(['other']).map(function (k) { return byKey[k]; }).filter(Boolean);
                 }
 
+                function shownDrives() {
+                    return (summary.Drives || []).filter(function (d) { return !d.Hidden && d.TotalBytes > 0; });
+                }
+
+                function driveLabel(d) { return d.Name + (d.Size ? ' ' + d.Size : ''); }
+
+                // Whether each drive the files are on has room for its share of the new files, hidden drives included:
+                // a new file is written beside its original. needed is the bytes for all of them together.
+                function driveRoom(files, needed) {
+                    var drives = {};
+                    (summary && summary.Drives || []).forEach(function (d) { drives[d.Id] = d; });
+                    var total = files.reduce(function (sum, f) { return sum + f.SizeBytes; }, 0) || 1;
+                    var byDrive = {};
+                    files.forEach(function (f) {
+                        var d = drives[f.DriveId];
+                        var key = d && d.FreeBytes >= 0 ? d.Id : '';
+                        byDrive[key] = (byDrive[key] || 0) + f.SizeBytes;
+                    });
+                    var tightest = null;
+                    Object.keys(byDrive).forEach(function (key) {
+                        // Files on a drive that couldn't be read fall back to the free space of all of them.
+                        var free = key ? drives[key].FreeBytes : (summary ? summary.FreeBytes : -1);
+                        if (free < 0) { return; }
+                        var need = needed * byDrive[key] / total;
+                        var room = { enough: free >= need, needed: need, free: free, drive: key ? drives[key] : null };
+                        if (!tightest || room.free - room.needed < tightest.free - tightest.needed) { tightest = room; }
+                    });
+                    return tightest || { enough: true, needed: needed, free: -1, drive: null };
+                }
+
                 function renderStorage() {
                     var suggested = suggestedFiles();
                     var freeable = suggested.reduce(function (sum, f) { return sum + f.EstimatedSavingsBytes; }, 0);
                     var codecs = codecSegments(summary.Files);
 
-                    var segments = codecs.slice();
-                    var hasDrive = summary.DriveTotalBytes > 0;
-                    if (hasDrive) {
-                        segments.push({ label: 'Other files', size: Math.max(summary.DriveTotalBytes - summary.FreeBytes - summary.TotalBytes, 0), colour: 'var(--dm-other)' });
-                        segments.push({ label: 'Free', size: Math.max(summary.FreeBytes, 0), colour: 'var(--dm-track)', free: true });
-                    }
+                    // One bar per disk the libraries are on, leaving out the ones hidden in the settings.
+                    var drives = shownDrives();
+                    var hasDrive = drives.length > 0;
+                    var otherBytes = 0;
+                    var driveNames = drives.map(function (d) { return d.Name; });
 
-                    // The drive on its own scale, then each library on a shared one, so they compare with each other.
+                    // Each drive on its own scale, then each library on a shared one, so they compare with each other.
                     var bars = $('#dmBars');
                     bars.textContent = '';
                     if (hasDrive) {
-                        addBar(bars, 'Drive', segments, formatBytes(summary.FreeBytes) + ' free of ' + formatBytes(summary.DriveTotalBytes));
+                        drives.forEach(function (d, i) {
+                            var onDrive = summary.Files.filter(function (f) { return f.DriveId === d.Id; });
+                            var other = Math.max(d.TotalBytes - d.FreeBytes - d.VideoBytes, 0);
+                            otherBytes += other;
+                            // Two drives of the same make are told apart by where they're mounted.
+                            var label = driveNames.indexOf(d.Name) !== i || driveNames.lastIndexOf(d.Name) !== i
+                                ? d.Name + ' (' + (d.MountPoints[0] || d.Kind) + ')' : d.Name;
+                            addBar(bars, label, codecSegments(onDrive).concat([
+                                { label: 'Other files', size: other, colour: 'var(--dm-other)' },
+                                { label: 'Free', size: Math.max(d.FreeBytes, 0), colour: 'var(--dm-track)', free: true }
+                            ]), formatBytes(d.FreeBytes) + ' free of ' + formatBytes(d.TotalBytes), null, d.Size);
+                        });
                         var gap = document.createElement('div');
                         gap.className = 'dm-bar-gap';
                         bars.appendChild(gap);
@@ -1550,7 +1597,10 @@
 
                     var legend = codecs.map(function (s) { return { label: s.label, size: s.size, colour: s.colour }; });
                     if (freeable > 0) { legend.push({ label: 'Could be freed', size: freeable, hatch: true }); }
-                    if (hasDrive) { legend = legend.concat(segments.slice(-2)); }
+                    if (hasDrive) {
+                        legend.push({ label: 'Other files', size: otherBytes, colour: 'var(--dm-other)' });
+                        legend.push({ label: 'Free', size: Math.max(summary.FreeBytes, 0), colour: 'var(--dm-track)', free: true });
+                    }
                     var list = $('#dmLegend');
                     list.textContent = '';
                     legend.forEach(function (s) {
@@ -1570,7 +1620,8 @@
                     var stats = '<div class="dm-stat"><span class="dm-stat-n">' + statHtml(summary.TotalBytes) + '</span><span class="dm-stat-l">of video in ' + plural(summary.FileCount, 'file')
                         + (libraries.length > 1 ? ' across ' + libraries.length + ' libraries' : '') + '</span></div>';
                     if (hasDrive) {
-                        stats += '<div class="dm-stat"><span class="dm-stat-n">' + statHtml(summary.FreeBytes) + '</span><span class="dm-stat-l">free of ' + escapeHtml(formatBytes(summary.DriveTotalBytes)) + '</span></div>';
+                        stats += '<div class="dm-stat"><span class="dm-stat-n">' + statHtml(summary.FreeBytes) + '</span><span class="dm-stat-l">free of ' + escapeHtml(formatBytes(summary.DriveTotalBytes))
+                            + (drives.length > 1 ? ' on ' + drives.length + ' drives' : '') + '</span></div>';
                     }
                     $('#dmStats').innerHTML = stats;
                     $('#dmCallout').classList.toggle('dm-hidden', !suggested.length);
@@ -3093,15 +3144,16 @@
                 function renderModes() {
                     var files = selectedFiles();
                     var estimate = totalEstimate();
-                    var needed = (estimate ? estimate.OutputBytes * 1.2 : estimatedOutputBytes(files, currentCodec())) + 1024 * 1024 * 1024;
-                    var free = summary ? summary.FreeBytes : -1;
+                    var room = driveRoom(files, (estimate ? estimate.OutputBytes * 1.2 : estimatedOutputBytes(files, currentCodec())));
+                    var needed = room.needed + 1024 * 1024 * 1024;
+                    var free = room.free;
                     var enoughSpace = free < 0 || free >= needed;
                     var current = page.querySelector('input[name="dmMode"]:checked');
                     var mode = current ? current.value : (keepOriginalByDefault() ? (enoughSpace ? 'KeepBoth' : '') : 'Replace');
                     // Without room to keep both, nothing is chosen for the user: deleting the original is never a default.
                     if (!enoughSpace && mode === 'KeepBoth') { mode = ''; }
 
-                    modeSpace = { enough: enoughSpace, note: free < 0 ? '' : ' Needs about ' + formatBytes(needed) + ', with ' + formatBytes(free) + ' free.' };
+                    modeSpace = { enough: enoughSpace, note: free < 0 ? '' : ' Needs about ' + formatBytes(needed) + ', with ' + formatBytes(free) + ' free' + (room.drive && (summary.Drives || []).length > 1 ? ' on ' + driveLabel(room.drive) : '') + '.' };
                     $('#dmModeChoices').innerHTML = segLabel('dmMode', 'KeepBoth', mode === 'KeepBoth', !enoughSpace, 'Keep both')
                         + segLabel('dmMode', 'Replace', mode === 'Replace', false, 'Replace original');
                     page.querySelectorAll('input[name="dmMode"]').forEach(function (r) { r.addEventListener('change', function () { renderModeHint(); renderWarnings(); renderOutputNote(); }); });
@@ -4381,9 +4433,10 @@
                         : notWorthIt ? '<span class="dm-result-text">Not worth it: this saves ' + escapeHtml(formatBytes(Math.max(saved, 0))) + ', under 1% of ' + escapeHtml(formatBytes(estimate.SourceBytes)) + '.</span>'
                             : resultHtml(estimate.SourceBytes, estimate.OutputBytes, null);
                     var mode = checkedValue('dmRemuxMode', 'KeepBoth');
-                    var free = summary ? summary.FreeBytes : -1;
-                    $('#dmRemuxWarning').innerHTML = mode === 'KeepBoth' && free >= 0 && free < estimate.OutputBytes * 1.05 + 1024 * 1024 * 1024
-                        ? '<li>There may not be room to keep both: about ' + escapeHtml(formatBytes(estimate.OutputBytes)) + ' is needed and ' + escapeHtml(formatBytes(free)) + ' is free.</li>'
+                    var room = driveRoom(selectedFiles(), estimate.OutputBytes * 1.05);
+                    $('#dmRemuxWarning').innerHTML = mode === 'KeepBoth' && room.free >= 0 && room.free < room.needed + 1024 * 1024 * 1024
+                        ? '<li>There may not be room to keep both: about ' + escapeHtml(formatBytes(room.needed)) + ' is needed and ' + escapeHtml(formatBytes(room.free)) + ' is free'
+                            + (room.drive && (summary.Drives || []).length > 1 ? ' on ' + escapeHtml(driveLabel(room.drive)) : '') + '.</li>'
                         : '';
                 }
 
