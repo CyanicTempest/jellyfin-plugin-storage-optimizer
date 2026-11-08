@@ -1440,7 +1440,7 @@ public sealed class EncodeService : IDisposable
             }
 
             job.Message = "Checking the new file…";
-            await VerifyAsync(source.FullName, tempPath, cancellationToken).ConfigureAwait(false);
+            await VerifyAsync(source.FullName, tempPath, tracks, cancellationToken).ConfigureAwait(false);
             encoded = true;
             job.OutputBytes = new FileInfo(tempPath).Length;
 
@@ -1491,7 +1491,7 @@ public sealed class EncodeService : IDisposable
         var tracks = await ChooseTracksAsync(job, item, source, cancellationToken).ConfigureAwait(false);
         var extras = await PlanExtrasAsync(job, source, sourceInfo, container, tracks, cancellationToken).ConfigureAwait(false);
         var removesAttachments = extras.Attachments is not null && extras.Attachments.Count < extras.SourceAttachmentCount;
-        if ((tracks is null || tracks.Removed.Count == 0) && extras.Audio.Count == 0 && extras.DolbyVisionStrip is null && !removesAttachments)
+        if ((tracks is null || tracks.Removed.Count == 0) && extras.Audio.Count == 0 && extras.DolbyVisionStrip is null && !removesAttachments && job.TrackLanguages.Count == 0)
         {
             throw new InvalidOperationException("There's nothing to change: these choices keep every track and attachment in this file as it is. The original was not changed.");
         }
@@ -1513,7 +1513,7 @@ public sealed class EncodeService : IDisposable
             await RunFfmpegAsync(args, duration, 0, job, cancellationToken).ConfigureAwait(false);
 
             job.Message = "Checking the new file…";
-            await VerifyAsync(source.FullName, tempPath, cancellationToken).ConfigureAwait(false);
+            await VerifyAsync(source.FullName, tempPath, tracks, cancellationToken).ConfigureAwait(false);
             finished = true;
             job.OutputBytes = new FileInfo(tempPath).Length;
 
@@ -2331,7 +2331,7 @@ public sealed class EncodeService : IDisposable
         job.RemainingSeconds = null;
     }
 
-    private async Task VerifyAsync(string sourcePath, string outputPath, CancellationToken cancellationToken)
+    private async Task VerifyAsync(string sourcePath, string outputPath, TrackPlan? tracks, CancellationToken cancellationToken)
     {
         var source = await ProbeLengthsAsync(sourcePath, cancellationToken).ConfigureAwait(false);
         var output = await ProbeLengthsAsync(outputPath, cancellationToken).ConfigureAwait(false);
@@ -2344,13 +2344,37 @@ public sealed class EncodeService : IDisposable
                 source.VideoSeconds ?? source.FileSeconds));
         }
 
-        // A film left with only a commentary, or no sound at all, isn't worth keeping.
+        // The new file must have the main video and every audio and subtitle track planned, and its film's sound.
         var sourceTracks = await ProbeTracksAsync(sourcePath, cancellationToken).ConfigureAwait(false);
-        var outputTracks = await ProbeTracksAsync(outputPath, cancellationToken).ConfigureAwait(false);
-        if (!TrackSelection.KeepsMainAudio(sourceTracks, outputTracks))
+        var outputJson = await ProbeJsonAsync(outputPath, ["-v", "error", "-show_entries", "stream=index,codec_type,codec_name,channels,bit_rate:stream_tags:stream_disposition=default,forced,attached_pic", "-of", "json", outputPath], cancellationToken).ConfigureAwait(false);
+        if (OutputCheck.Problem(sourceTracks, outputJson, tracks, _languages.Normalize) is { } problem)
         {
-            throw new InvalidOperationException("The new file has no main audio, only a commentary or none at all, so it was discarded and the original kept.");
+            throw new InvalidOperationException(problem + " It was discarded and the original kept.");
         }
+    }
+
+    private async Task<string> ProbeJsonAsync(string path, IEnumerable<string> arguments, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo(_mediaEncoder.ProbePath)
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var arg in arguments)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start ffprobe.");
+        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException("ffprobe couldn't read " + Path.GetFileName(path) + ".");
+        }
+
+        return output;
     }
 
     private async Task<MediaLengths> ProbeLengthsAsync(string path, CancellationToken cancellationToken)

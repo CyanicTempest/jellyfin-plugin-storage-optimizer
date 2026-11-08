@@ -416,6 +416,9 @@
             #DataManagerDashboardPage .dm-level-note.dm-only-main { color: var(--dm-warning); }
             #DataManagerDashboardPage .dm-track-notes { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: -6px; }
             #DataManagerDashboardPage .dm-track-notes .dm-level-note { margin-left: 0; }
+            #DataManagerDashboardPage .dm-track-notes .dm-lang-pick { height: 30px; max-width: 100%; font-size: 12.5px; }
+            #DataManagerDashboardPage .dm-untagged-only :is(.dm-language, .dm-track-box) { visibility: hidden; }
+            #DataManagerDashboardPage .dm-untagged-only .dm-level:has(input:checked) { background: none; border-color: transparent; }
             #DataManagerDashboardPage .dm-track-files { margin: 0; padding: 2px 4px 8px 64px; list-style: none; font-size: 12px; line-height: 1.6; color: var(--dm-ink-3); }
             #DataManagerDashboardPage .dm-languages-title { margin: 0; display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
             #DataManagerDashboardPage .dm-level-head { font-weight: 400; font-size: 12px; color: var(--dm-ink-3); }
@@ -2451,6 +2454,7 @@
                         Languages: keptLanguages(),
                         ExcludedTracks: changedTracks(false),
                         IncludedTracks: changedTracks(true),
+                        TrackLanguages: chosenTrackLanguages(),
                         AudioFormat: $('#dmAudioFormat').value,
                         StereoAudio: $('#dmStereo').checked,
                         Hdr: $('#dmHdr').value,
@@ -2519,6 +2523,8 @@
                     trackChoice = {};
                     openLanguages = {};
                     openTrackFiles = {};
+                    trackLanguages = {};
+                    openLanguagePick = {};
                     lastTrackEstimate = null;
                 }
 
@@ -2533,6 +2539,37 @@
                 var openLanguages = {};
                 // Tracks whose list of files is open, by key.
                 var openTrackFiles = {};
+                // Languages chosen for tracks, by key, which the new files are tagged with; and the rows whose picker is open.
+                var trackLanguages = {};
+                var openLanguagePick = {};
+                var cultures = null;
+
+                function chosenTrackLanguages() {
+                    var out = {};
+                    Object.keys(trackLanguages).forEach(function (key) { if (trackLanguages[key]) { out[key] = trackLanguages[key]; } });
+                    return out;
+                }
+
+                // Jellyfin's languages, by name, for the pickers. Loaded the first time one opens.
+                function loadCultures() {
+                    if (cultures) { return Promise.resolve(cultures); }
+                    return ApiClient.getCultures().then(function (list) {
+                        var seen = {};
+                        cultures = (list || []).filter(function (c) {
+                            var code = c.ThreeLetterISOLanguageName;
+                            if (!code || seen[code]) { return false; }
+                            seen[code] = true;
+                            return true;
+                        }).map(function (c) { return { code: c.ThreeLetterISOLanguageName, name: (c.DisplayName || c.Name || '').split(';')[0] }; })
+                            .sort(function (a, b) { return collator.compare(a.name, b.name); });
+                        return cultures;
+                    }, function () { cultures = []; return cultures; });
+                }
+
+                function cultureName(code) {
+                    var hit = (cultures || []).filter(function (c) { return c.code === code; })[0];
+                    return hit ? hit.name : code;
+                }
 
                 // A track as plain words, such as "Japanese AAC Stereo", for notes that aren't markup.
                 function trackText(t, languages) {
@@ -2614,15 +2651,20 @@
                     // tracks the choices above act on are listed: audio when choosing audio, subtitles when choosing them.
                     var audioOn = $('#dmAudio').value !== 'KeepAll';
                     var subs = $('#dmSubtitles').value;
+                    // Keeping everything, only the tracks with no language are listed, so their language can be set.
+                    var untaggedOnly = !needsLanguages();
                     var tracks = (estimate && estimate.Tracks ? estimate.Tracks : []).filter(function (t) {
+                        if (untaggedOnly) { return !t.Language && subs !== 'RemoveAll'; }
                         return t.Kind === 'Audio' ? audioOn : (subs === 'KeepLanguages' || (subs === 'KeepForced' && t.IsForced));
                     });
                     var rows = languages.map(function (l) {
                         return { language: l, tracks: tracks.filter(function (t) { return t.Language === l.Code; }) };
                     }).filter(function (r) { return r.tracks.length; });
 
-                    var show = needsLanguages() && rows.length > 0;
+                    var show = rows.length > 0;
                     $('#dmLanguagesBlock').classList.toggle('dm-hidden', !show);
+                    $('#dmLanguagesBlock').classList.toggle('dm-untagged-only', untaggedOnly);
+                    $('#dmLanguagesTitle').firstChild.textContent = untaggedOnly ? 'Tracks with no language set ' : 'Languages to keep ';
                     if (show) {
                         var focus = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.focusKey : null;
                         var fileCount = Object.keys(selected).length;
@@ -2630,7 +2672,7 @@
                             var l = r.language;
                             var ticked = languageKept(l.Code);
                             var keptCount = r.tracks.filter(trackKept).length;
-                            var open = languageOpen(l.Code, r.tracks);
+                            var open = untaggedOnly ? openLanguages[l.Code] !== false : languageOpen(l.Code, r.tracks);
                             var audio = r.tracks.filter(function (t) { return t.Kind === 'Audio'; }).length;
                             var what = [];
                             if (audio) { what.push(plural(audio, 'audio track')); }
@@ -2653,6 +2695,16 @@
                                 var inFiles = fileCount > 1 && t.Files < fileCount
                                     ? '<button type="button" class="dm-text-button dm-level-note dm-track-files-toggle" data-focus-key="files:' + escapeHtml(t.Key) + '" data-key="' + escapeHtml(t.Key) + '" aria-expanded="' + filesOpen + '">in ' + t.Files + ' of ' + fileCount + ' files</button>'
                                     : '';
+                                // The language the new files tag it with, when it's wrong or missing in the file.
+                                var picked = trackLanguages[t.Key];
+                                var pickOpen = !!openLanguagePick[t.Key];
+                                var langNote = pickOpen
+                                    ? '<select class="dm-dropdown dm-lang-pick" data-focus-key="pick:' + escapeHtml(t.Key) + '" data-key="' + escapeHtml(t.Key) + '" aria-label="Language for this track in the new files">'
+                                        + '<option value="">' + escapeHtml(t.Language ? 'As in the file (' + l.Name + ')' : 'As in the file (not set)') + '</option>'
+                                        + (cultures || []).map(function (c) { return '<option value="' + escapeHtml(c.code) + '"' + (c.code === picked ? ' selected' : '') + '>' + escapeHtml(c.name) + '</option>'; }).join('')
+                                        + '</select>'
+                                    : '<button type="button" class="dm-text-button dm-level-note dm-set-lang" data-focus-key="setlang:' + escapeHtml(t.Key) + '" data-key="' + escapeHtml(t.Key) + '">'
+                                        + escapeHtml(picked ? 'Tagged as ' + cultureName(picked) : t.Language ? 'Change language' : 'Set language') + '</button>';
                                 // Unticking a file's only main audio doesn't remove it: that file keeps it anyway.
                                 var onlyNote = only.length && fileCount > 1
                                     ? '<span class="dm-level-note dm-only-main" title="' + escapeHtml(nameList(only, 10)) + '">Only main audio in ' + plural(only.length, 'file') + '</span>'
@@ -2661,7 +2713,7 @@
                                     + '<input type="checkbox" class="dm-track-box" id="' + id + '" data-focus-key="track:' + escapeHtml(t.Key) + '" data-key="' + escapeHtml(t.Key) + '" data-code="' + escapeHtml(l.Code) + '"' + (trackKept(t) ? ' checked' : '') + ' />'
                                     + '<label for="' + id + '">' + trackLabel(t) + '</label>'
                                     + '<span class="dm-level-value dm-guess">' + formatBytes(t.Bytes) + '</span>'
-                                    + (inFiles || onlyNote ? '<div class="dm-track-notes">' + inFiles + onlyNote + '</div>' : '')
+                                    + '<div class="dm-track-notes">' + inFiles + onlyNote + langNote + '</div>'
                                     + '</div>'
                                     + (filesOpen ? '<ul class="dm-track-files">' + names.map(function (n) { return '<li>' + escapeHtml(n) + (only.indexOf(n) >= 0 ? ' <span class="dm-only-main dm-level-note">only main audio</span>' : '') + '</li>'; }).join('') + '</ul>' : '');
                             }).join('');
@@ -2684,6 +2736,24 @@
                                 if (box.checked === languageKept(box.dataset.code)) { delete trackChoice[box.dataset.key]; } else { trackChoice[box.dataset.key] = box.checked; }
                                 renderTracks();
                                 tracksChanged();
+                            });
+                        });
+                        page.querySelectorAll('.dm-set-lang').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                var key = button.dataset.key;
+                                loadCultures().then(function () {
+                                    openLanguagePick[key] = true;
+                                    renderTracks();
+                                    var pick = Array.prototype.filter.call(page.querySelectorAll('.dm-lang-pick'), function (e) { return e.dataset.key === key; })[0];
+                                    if (pick) { pick.focus(); }
+                                });
+                            });
+                        });
+                        page.querySelectorAll('.dm-lang-pick').forEach(function (pick) {
+                            pick.addEventListener('change', function () {
+                                trackLanguages[pick.dataset.key] = pick.value;
+                                openLanguagePick[pick.dataset.key] = false;
+                                renderTracks();
                             });
                         });
                         page.querySelectorAll('.dm-track-files-toggle').forEach(function (button) {
@@ -2724,6 +2794,9 @@
                             }
                         }
                         note.push('A file always keeps at least one audio track. Subtitle files next to the video aren\'t touched.');
+                    }
+                    if (Object.keys(chosenTrackLanguages()).length) {
+                        note.push('Tracks you set a language for are tagged with it in the new files.');
                     }
                     $('#dmTracksNote').textContent = note.join(' ');
                     $('#dmTracksNote').classList.toggle('dm-hidden', !note.length);
@@ -4415,6 +4488,7 @@
                         Languages: body.Languages,
                         ExcludedTracks: body.ExcludedTracks,
                         IncludedTracks: body.IncludedTracks,
+                        TrackLanguages: body.TrackLanguages,
                         AudioFormat: body.AudioFormat,
                         StereoAudio: body.StereoAudio,
                         Hdr: body.Hdr,
