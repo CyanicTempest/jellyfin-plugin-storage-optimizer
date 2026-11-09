@@ -1,7 +1,7 @@
 ---
 name: "Storage Optimizer"
 guid: "058486e8-6ec1-4313-b336-a2f160d50fac"
-version: "0.1.1.4"
+version: "0.1.1.5"
 targetAbi: "12.4.0.0"
 framework: "net10.0"
 overview: "See where your library storage goes and re-encode to save space"
@@ -15,13 +15,9 @@ owner: "CyanicTempest"
 artifacts:
 - "Jellyfin.Plugin.DataManager.dll"
 changelog: >
-  Needs Jellyfin 12.4. The overview shows free space per disk, and each drive
-  can be hidden in Settings. The encode list survives a restart, and failed or
-  stopped encodes can be restarted. The scan tags likely file problems, which
-  the list can filter by, and it can sort by resolution. Each new file is
-  checked in full before it replaces the original, main audio is guarded, and
-  track titles and languages can be tidied. Settings add recycling of
-  originals, encoding hours, lower priority and default choices. GPUs that
-  can't encode 10-bit fall back step by step, HDR to SDR offers four styles,
-  and VA-API can decode on the GPU. Unlinked extras are filed under their
-  movie's library.
+  Needs Jellyfin 12.4. The media list has a new Filters panel (library,
+  watched, resolution, audio and subtitles, file issues) with removable chips,
+  and a Sort menu with order and Group by codec; column headings sort too.
+  Re-encode previews keep going while ffmpeg is working and stop only when it
+  stalls, a GPU that hangs falls back to the CPU, timeout messages say what to
+  try, and a failed preview has a Try again button.
