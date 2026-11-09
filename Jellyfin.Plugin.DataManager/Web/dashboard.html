@@ -227,9 +227,47 @@
             #DataManagerDashboardPage .dm-lib-top { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px 16px; }
             #DataManagerDashboardPage .dm-sh { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
             #DataManagerDashboardPage .dm-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
-            #DataManagerDashboardPage .dm-list-search { flex: 1 1 220px; max-width: 280px; }
-            #DataManagerDashboardPage .dm-list-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: 1 1 auto; min-width: 0; }
-            #DataManagerDashboardPage #dmLibrary, #DataManagerDashboardPage #dmIssue { max-width: 220px; }
+            #DataManagerDashboardPage .dm-list-search { flex: 1 1 260px; }
+            #DataManagerDashboardPage .dm-list-btns { display: flex; align-items: center; gap: 8px; flex: none; }
+            #DataManagerDashboardPage .dm-pop-wrap { position: relative; }
+            #DataManagerDashboardPage .dm-bar-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--dm-line); background: var(--dm-deep); color: var(--dm-ink); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+            #DataManagerDashboardPage .dm-bar-button:hover, #DataManagerDashboardPage .dm-bar-button[aria-expanded="true"] { border-color: var(--dm-box); }
+            #DataManagerDashboardPage .dm-bar-button.dm-on { border-color: var(--dm-accent-line); background: var(--dm-tint); color: var(--dm-tint-ink); }
+            #DataManagerDashboardPage .dm-bar-button:focus-visible { outline: 2px solid var(--dm-accent); outline-offset: 1px; }
+            #DataManagerDashboardPage .dm-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: var(--dm-accent); color: var(--dm-on-accent); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+            #DataManagerDashboardPage .dm-pop { position: fixed; z-index: 1000; width: 330px; max-width: calc(100vw - 32px); max-height: 660px; overflow: auto; color-scheme: dark; overscroll-behavior: contain; background: var(--dm-raised); border: 1px solid var(--dm-dock-line); border-radius: 12px; box-shadow: 0 18px 50px var(--dm-shadow); font-size: 13px; text-align: left; }
+            #DataManagerDashboardPage .dm-pop-sort { width: 260px; }
+            #DataManagerDashboardPage .dm-pop:is([data-dm-theme="light"] *) { color-scheme: light; }
+            #DataManagerDashboardPage .dm-pop-head { display: none; }
+            #DataManagerDashboardPage .dm-pop-sec { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border-bottom: 1px solid var(--dm-line); }
+            #DataManagerDashboardPage .dm-pop-sec:last-child { border-bottom: 0; }
+            #DataManagerDashboardPage .dm-pop-sec h3 { margin: 0 0 6px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dm-ink-3); }
+            #DataManagerDashboardPage .dm-pop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+            #DataManagerDashboardPage .dm-opt { display: flex; align-items: center; gap: 10px; min-height: 32px; color: var(--dm-ink); cursor: pointer; }
+            #DataManagerDashboardPage .dm-opt input { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--dm-accent); cursor: pointer; }
+            #DataManagerDashboardPage .dm-opt small { margin-left: auto; padding-left: 8px; font-size: 12px; color: var(--dm-ink-3); font-variant-numeric: tabular-nums; }
+            #DataManagerDashboardPage .dm-opt.dm-none { color: var(--dm-ink-3); }
+            #DataManagerDashboardPage .dm-sort-list .dm-opt { margin: 0 -8px; padding: 0 8px; border-radius: 7px; }
+            #DataManagerDashboardPage .dm-sort-list .dm-opt:has(input:checked) { background: var(--dm-tint); color: var(--dm-tint-ink); }
+            #DataManagerDashboardPage .dm-pop .dm-segmented { display: flex; }
+            #DataManagerDashboardPage .dm-pop .dm-segmented label { flex: 1 1 0; }
+            #DataManagerDashboardPage .dm-pop-row { display: flex; align-items: center; gap: 10px; min-height: 40px; margin-top: 6px; }
+            #DataManagerDashboardPage .dm-pop-row .dm-dropdown { margin-left: auto; }
+            #DataManagerDashboardPage .dm-switch input { -webkit-appearance: none; appearance: none; position: relative; width: 34px; height: 20px; margin: 0 0 0 auto; border-radius: 10px; background: var(--dm-dock-line); }
+            #DataManagerDashboardPage .dm-switch input::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 7px; background: var(--dm-ink-2); transition: left 0.15s; }
+            #DataManagerDashboardPage .dm-switch input:checked { background: var(--dm-accent); }
+            #DataManagerDashboardPage .dm-switch input:checked::after { left: 17px; background: var(--dm-on-accent); }
+            #DataManagerDashboardPage .dm-switch input:focus-visible { outline: 2px solid var(--dm-accent); outline-offset: 2px; }
+            #DataManagerDashboardPage .dm-pop-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--dm-line); background: var(--dm-raised); }
+            #DataManagerDashboardPage .dm-pop-foot .dm-button { margin-left: auto; }
+            #DataManagerDashboardPage .dm-pop-scrim { display: none; }
+            #DataManagerDashboardPage .dm-filter-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+            #DataManagerDashboardPage .dm-filter-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 6px 0 10px; border-radius: 14px; border: 1px solid var(--dm-accent-line); background: var(--dm-tint); color: var(--dm-tint-ink); font: inherit; font-size: 12.5px; cursor: pointer; }
+            #DataManagerDashboardPage .dm-filter-chip:hover { border-color: var(--dm-accent); }
+            #DataManagerDashboardPage .dm-filter-chip b { font-weight: 500; color: var(--dm-ink); }
+            #DataManagerDashboardPage .dm-filter-chip .dm-ic { width: 12px; height: 12px; }
+            #DataManagerDashboardPage .dm-filter-chips .dm-text-button { font-size: 12.5px; }
+            #DataManagerDashboardPage .dm-shown-count { margin-left: auto; font-size: 12.5px; color: var(--dm-ink-3); font-variant-numeric: tabular-nums; }
             #DataManagerDashboardPage .dm-lh,
             #DataManagerDashboardPage .dm-row { display: grid; grid-template-columns: 22px 44px minmax(0, 1fr) 150px 160px; gap: 0 16px; align-items: center; padding: 0 20px; }
             #DataManagerDashboardPage .dm-lh { height: 38px; border-top: 1px solid var(--dm-line); border-bottom: 1px solid var(--dm-line); background: var(--dm-deep); font-size: 12px; font-weight: 500; color: var(--dm-ink-3); }
@@ -242,6 +280,8 @@
             #DataManagerDashboardPage .dm-sort:hover { color: var(--dm-ink); }
             #DataManagerDashboardPage .dm-sort.dm-on::after { content: " \2193"; }
             #DataManagerDashboardPage .dm-sort.dm-on[data-sort="name"]::after { content: " \2191"; }
+            #DataManagerDashboardPage .dm-sort.dm-on.dm-rev::after { content: " \2191"; }
+            #DataManagerDashboardPage .dm-sort.dm-on.dm-rev[data-sort="name"]::after { content: " \2193"; }
             #DataManagerDashboardPage .dm-row { min-height: 68px; padding-block: 10px; border-bottom: 1px solid var(--dm-soft); position: relative; content-visibility: auto; contain-intrinsic-size: auto 68px; }
             #DataManagerDashboardPage .dm-row:hover { background: var(--dm-hover); }
             #DataManagerDashboardPage .dm-row.dm-selected { background: var(--dm-tint); }
@@ -445,7 +485,7 @@
             #DataManagerDashboardPage .dm-label-second { right: 12px; }
             #DataManagerDashboardPage .dm-viewer:not([data-view="swipe"]) :is(.dm-divider, .dm-label-second) { display: none; }
             #DataManagerDashboardPage .dm-viewer[data-view="map"] .dm-label { display: none; }
-            #DataManagerDashboardPage .dm-busy { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; padding: 1em; text-align: center; background: rgba(0, 0, 0, 0.55); color: #fff; line-height: 1.4; }
+            #DataManagerDashboardPage .dm-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1em; text-align: center; background: rgba(0, 0, 0, 0.55); color: #fff; line-height: 1.4; }
             #DataManagerDashboardPage .dm-clip-video { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
             #DataManagerDashboardPage .dm-viewer-tools { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; font-size: 13px; }
             #DataManagerDashboardPage .dm-viewer-tools .dm-dropdown { width: auto; }
@@ -639,8 +679,19 @@
                 #DataManagerDashboardPage .dm-jobs-head .dm-tools { width: auto; }
                 #DataManagerDashboardPage .dm-tools .dm-field { flex: 1 1 100%; }
                 #DataManagerDashboardPage .dm-list-search { max-width: none; }
-                #DataManagerDashboardPage .dm-list-pick { flex: 1 1 100%; }
-                #DataManagerDashboardPage .dm-list-pick .dm-dropdown { flex: 1 1 0; min-width: 0; }
+                #DataManagerDashboardPage .dm-list-btns { flex: 1 1 100%; }
+                #DataManagerDashboardPage .dm-list-btns > .dm-pop-wrap { flex: 1 1 0; min-width: 0; }
+                #DataManagerDashboardPage .dm-bar-button { width: 100%; height: 40px; font-size: 14px; }
+                #DataManagerDashboardPage .dm-pop { left: 0; right: 0; bottom: 0; top: auto; z-index: 1340; width: auto; max-width: none; max-height: 85vh; max-height: 85dvh; border-radius: 18px 18px 0 0; border-bottom: 0; font-size: 14px; }
+                #DataManagerDashboardPage .dm-pop-head { display: block; padding: 18px 20px 6px; font-size: 17px; font-weight: 600; }
+                #DataManagerDashboardPage .dm-pop-sec { padding: 14px 20px; }
+                #DataManagerDashboardPage .dm-opt { min-height: 40px; }
+                #DataManagerDashboardPage .dm-opt input { width: 18px; height: 18px; }
+                #DataManagerDashboardPage .dm-pop .dm-segmented label { min-height: 36px; }
+                #DataManagerDashboardPage .dm-pop .dm-dropdown { flex: none; height: 36px; }
+                #DataManagerDashboardPage .dm-pop-foot { padding: 14px 20px 20px; }
+                #DataManagerDashboardPage .dm-pop-foot .dm-button { flex: 1 1 auto; height: 46px; font-size: 15px; }
+                #DataManagerDashboardPage .dm-pop-scrim:not(.dm-hidden) { display: block; position: fixed; inset: 0; z-index: 1339; background: var(--dm-scrim); }
                 #DataManagerDashboardPage .dm-tools .dm-dropdown { flex: 1; }
                 #DataManagerDashboardPage .dm-lh { grid-template-columns: 24px minmax(0, 1fr) auto; padding: 0 16px; }
                 #DataManagerDashboardPage .dm-lh .dm-skip { display: none; }
@@ -768,33 +819,55 @@
                         <div class="dm-lib-top">
                             <div class="dm-tools">
                                 <label class="dm-field dm-list-search"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="dmFilter" placeholder="Search" aria-label="Search by name" /></label>
-                                <div id="dmShow" class="dm-segmented" role="radiogroup" aria-label="Show">
-                                    <label><input type="radio" name="dmShow" value="all" checked />All</label>
-                                    <label><input type="radio" name="dmShow" value="suggested" />Suggested</label>
-                                    <label id="dmShowUnwatched" class="dm-hidden"><input type="radio" name="dmShow" value="unwatched" />Not watched</label>
-                                </div>
-                                <select id="dmWatched" class="dm-dropdown dm-hidden" aria-label="Not watched for">
-                                    <option value="182">for 6 months</option>
-                                    <option value="365" selected>for a year</option>
-                                    <option value="730">for 2 years</option>
-                                    <option value="1095">for 3 years</option>
-                                </select>
-                                <div class="dm-list-pick">
-                                <select id="dmLibrary" class="dm-dropdown" aria-label="Library"></select>
-                                <select id="dmIssue" class="dm-dropdown dm-hidden" aria-label="File issues"></select>
-                                <select id="dmSort" class="dm-dropdown" aria-label="Sort by">
-                                    <option value="saving">Sort: Could free</option>
-                                    <option value="size">Sort: Size</option>
-                                    <option value="bitrate">Sort: Bitrate</option>
-                                    <option value="resolution">Sort: Resolution</option>
-                                    <option value="name">Sort: Name</option>
-                                    <option value="watched">Sort: Last watched</option>
-                                    <optgroup label="Group">
-                                        <option value="type">Group by codec</option>
-                                    </optgroup>
-                                </select>
+                                <div class="dm-list-btns">
+                                    <div class="dm-pop-wrap">
+                                        <button type="button" id="dmFiltersButton" class="dm-bar-button" aria-expanded="false" aria-controls="dmFiltersPanel"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>Filters<span id="dmFilterCount" class="dm-badge dm-hidden"></span></button>
+                                        <div id="dmFiltersPanel" class="dm-pop dm-hidden" role="dialog" aria-label="Filters">
+                                            <div class="dm-pop-head">Filters</div>
+                                            <section class="dm-pop-sec"><h3 id="dmLibraryHead">Library</h3><div id="dmLibraryOptions" role="radiogroup" aria-labelledby="dmLibraryHead"></div></section>
+                                            <section class="dm-pop-sec"><h3 id="dmShowHead">Show</h3>
+                                                <div id="dmShow" class="dm-segmented" role="radiogroup" aria-labelledby="dmShowHead">
+                                                    <label><input type="radio" name="dmShow" value="all" checked />All</label>
+                                                    <label><input type="radio" name="dmShow" value="suggested" />Suggested</label>
+                                                    <label id="dmShowUnwatched" class="dm-hidden"><input type="radio" name="dmShow" value="unwatched" />Not watched</label>
+                                                </div>
+                                                <div id="dmWatchedRow" class="dm-pop-row dm-hidden"><label for="dmWatched">Not watched</label>
+                                                    <select id="dmWatched" class="dm-dropdown">
+                                                        <option value="182">for 6 months</option>
+                                                        <option value="365" selected>for a year</option>
+                                                        <option value="730">for 2 years</option>
+                                                        <option value="1095">for 3 years</option>
+                                                    </select>
+                                                </div>
+                                            </section>
+                                            <section class="dm-pop-sec"><h3 id="dmResHead">Resolution</h3><div id="dmResOptions" class="dm-pop-grid" role="group" aria-labelledby="dmResHead"></div></section>
+                                            <section class="dm-pop-sec"><h3 id="dmTrackHead">Audio and subtitles</h3><div id="dmTrackOptions" role="group" aria-labelledby="dmTrackHead"></div></section>
+                                            <section id="dmIssueSection" class="dm-pop-sec dm-hidden"><h3 id="dmIssueHead">File issues</h3><div id="dmIssueOptions" role="group" aria-labelledby="dmIssueHead"></div></section>
+                                            <div class="dm-pop-foot"><button type="button" id="dmFiltersClear" class="dm-text-button">Clear all</button><button type="button" id="dmFiltersDone" class="dm-button dm-primary">Show files</button></div>
+                                        </div>
+                                    </div>
+                                    <div class="dm-pop-wrap">
+                                        <button type="button" id="dmSortButton" class="dm-bar-button" aria-expanded="false" aria-controls="dmSortPanel"><svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 16 4 4 4-4M7 20V4M11 4h10M11 8h7M11 12h4"/></svg><span id="dmSortLabel">Sort: Could free</span></button>
+                                        <div id="dmSortPanel" class="dm-pop dm-pop-sort dm-hidden" role="dialog" aria-label="Sort">
+                                            <div class="dm-pop-head">Sort</div>
+                                            <section class="dm-pop-sec dm-sort-list"><h3 id="dmSortHead">Sort by</h3><div role="radiogroup" aria-labelledby="dmSortHead">
+                                                <label class="dm-opt"><input type="radio" name="dmSortBy" value="saving" />Could free</label>
+                                                <label class="dm-opt"><input type="radio" name="dmSortBy" value="size" />Size</label>
+                                                <label class="dm-opt"><input type="radio" name="dmSortBy" value="bitrate" />Bitrate</label>
+                                                <label class="dm-opt"><input type="radio" name="dmSortBy" value="resolution" />Resolution</label>
+                                                <label class="dm-opt"><input type="radio" name="dmSortBy" value="name" />Name</label>
+                                                <label class="dm-opt"><input type="radio" name="dmSortBy" value="watched" />Last watched</label>
+                                            </div></section>
+                                            <section class="dm-pop-sec"><h3 id="dmOrderHead">Order</h3>
+                                                <div class="dm-segmented" role="radiogroup" aria-labelledby="dmOrderHead"><label><input type="radio" name="dmSortDir" value="natural" checked /><span id="dmOrderNatural">Largest first</span></label><label><input type="radio" name="dmSortDir" value="reversed" /><span id="dmOrderReversed">Smallest first</span></label></div>
+                                            </section>
+                                            <section class="dm-pop-sec"><label class="dm-opt dm-switch">Group by codec<input type="checkbox" id="dmGroupCodec" role="switch" /></label></section>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
+                            <div id="dmFilterChips" class="dm-filter-chips dm-hidden"></div>
+                            <div id="dmPopScrim" class="dm-pop-scrim dm-hidden"></div>
                         </div>
                         <p id="dmSavingsLine" class="dm-notice dm-hidden"></p>
                         <p id="dmMediaNotice" class="dm-notice dm-hidden" role="status"></p>
@@ -1203,10 +1276,15 @@
                 var jobsOpen = {};
                 var filterTimer = null;
                 var leftovers = null;
-                // The library tab picked above the media list ('' for all), and how many titles of it are drawn.
+                // What the media list is narrowed to. None of it is remembered, so each visit starts on everything.
                 var libraryFilter = '';
-                // '' for every file, 'any' for files with any issue, or one issue's code.
-                var issueFilter = '';
+                var resolutionFilter = {};
+                var trackFilter = {};
+                var issueFilter = {};
+                // How the list is ordered: by what, which way round, and grouped by codec or not. Remembered in this browser.
+                var sortBy = 'saving';
+                var sortReverse = false;
+                var groupByCodec = false;
                 // The largest title on the page, so the little size bars share one scale.
                 var barMax = 1;
                 var leftoverPicked = {};
@@ -1430,7 +1508,7 @@
                     var known = historyKnown();
                     $('#dmShowUnwatched').classList.toggle('dm-hidden', !known);
                     if (!known && showMode() === 'unwatched') { page.querySelector('input[name="dmShow"][value="all"]').checked = true; }
-                    $('#dmWatched').classList.toggle('dm-hidden', !(known && showMode() === 'unwatched'));
+                    $('#dmWatchedRow').classList.toggle('dm-hidden', !(known && showMode() === 'unwatched'));
                 }
 
                 function historyKnown() {
@@ -1464,7 +1542,7 @@
                 }
 
                 function showWatched() {
-                    return historyKnown() && (watchedDays() > 0 || $('#dmSort').value === 'watched');
+                    return historyKnown() && (watchedDays() > 0 || sortBy === 'watched');
                 }
 
                 // How long something has sat unwatched: since it was last watched or, if never, since it was added.
@@ -1694,17 +1772,29 @@
                     return Math.max(f.Height || 0, Math.round((f.Width || 0) * 9 / 16));
                 }
 
+                // Each sort's natural order, and the two ways round it can go.
+                var sortNames = { saving: 'Could free', size: 'Size', bitrate: 'Bitrate', resolution: 'Resolution', name: 'Name', watched: 'Last watched' };
+                var sortOrders = { resolution: ['Highest first', 'Lowest first'], name: ['A to Z', 'Z to A'], watched: ['Longest ago first', 'Most recent first'] };
+
+                // Turned round when the order is, and with codecs kept together when grouped.
+                function arrange(order, codecOf) {
+                    if (sortReverse) {
+                        var forward = order;
+                        order = function (a, b) { return forward(b, a); };
+                    }
+                    if (!groupByCodec) { return order; }
+                    return function (a, b) { return collator.compare(codecOf(a), codecOf(b)) || order(a, b); };
+                }
+
                 function sortFiles(files, sort) {
-                    var sorted = files.slice();
                     var bySize = function (a, b) { return b.SizeBytes - a.SizeBytes; };
-                    if (sort === 'size') { sorted.sort(bySize); }
-                    else if (sort === 'saving') { sorted.sort(function (a, b) { return b.EstimatedSavingsBytes - a.EstimatedSavingsBytes || bySize(a, b); }); }
-                    else if (sort === 'bitrate') { sorted.sort(function (a, b) { return b.Bitrate - a.Bitrate || bySize(a, b); }); }
-                    else if (sort === 'resolution') { sorted.sort(function (a, b) { return resolutionRank(b) - resolutionRank(a) || bySize(a, b); }); }
-                    else if (sort === 'name') { sorted.sort(function (a, b) { return collator.compare(a.Name, b.Name); }); }
-                    else if (sort === 'watched') { sorted.sort(function (a, b) { return playedTime(a) - playedTime(b) || bySize(a, b); }); }
-                    else { sorted.sort(function (a, b) { return collator.compare(codecLabel(a.VideoCodec), codecLabel(b.VideoCodec)) || bySize(a, b); }); }
-                    return sorted;
+                    var order = bySize;
+                    if (sort === 'saving') { order = function (a, b) { return b.EstimatedSavingsBytes - a.EstimatedSavingsBytes || bySize(a, b); }; }
+                    else if (sort === 'bitrate') { order = function (a, b) { return b.Bitrate - a.Bitrate || bySize(a, b); }; }
+                    else if (sort === 'resolution') { order = function (a, b) { return resolutionRank(b) - resolutionRank(a) || bySize(a, b); }; }
+                    else if (sort === 'name') { order = function (a, b) { return collator.compare(a.Name, b.Name); }; }
+                    else if (sort === 'watched') { order = function (a, b) { return playedTime(a) - playedTime(b) || bySize(a, b); }; }
+                    return files.slice().sort(arrange(order, function (f) { return codecLabel(f.VideoCodec); }));
                 }
 
                 // How many audio languages and subtitle tracks a file holds, which removing tracks can shrink. Files scanned
@@ -1977,8 +2067,15 @@
                     if (libraryFilter) {
                         files = files.filter(function (f) { return f.Library === libraryFilter; });
                     }
-                    if (issueFilter) {
-                        files = files.filter(function (f) { return (f.Issues || []).length && (issueFilter === 'any' || f.Issues.indexOf(issueFilter) !== -1); });
+                    // Ticks within one section widen the list (4K or 1080p); sections narrow it.
+                    if (anyTicked(resolutionFilter)) {
+                        files = files.filter(function (f) { return resolutionFilter[resolutionBand(f)]; });
+                    }
+                    if (anyTicked(trackFilter)) {
+                        files = files.filter(function (f) { return (trackFilter.subtitles && hasSubtitles(f)) || (trackFilter.languages && hasExtraLanguages(f)); });
+                    }
+                    if (anyTicked(issueFilter)) {
+                        files = files.filter(function (f) { return (f.Issues || []).some(function (code) { return issueFilter[code]; }); });
                     }
                     if (showMode() === 'suggested') {
                         files = files.filter(function (f) { return f.IsRecommended; });
@@ -1990,7 +2087,7 @@
                     if (query) {
                         files = files.filter(function (f) { return searchText(f).indexOf(query) !== -1; });
                     }
-                    visibleCache = sortFiles(files, $('#dmSort').value);
+                    visibleCache = sortFiles(files, sortBy);
                     return visibleCache;
                 }
 
@@ -2002,46 +2099,131 @@
                     return mainIdsCache;
                 }
 
-                // Every library the scan found, with how many files each holds.
-                function renderLibraryFilter() {
-                    var libraries = summary.Libraries || [];
-                    if (libraryFilter && !libraries.some(function (l) { return l.Name === libraryFilter; })) { libraryFilter = ''; }
-                    var picker = $('#dmLibrary');
-                    picker.innerHTML = [{ Name: '', Label: 'All libraries', FileCount: summary.FileCount }].concat(libraries).map(function (l) {
-                        return '<option value="' + escapeHtml(l.Name) + '">' + escapeHtml((l.Label || l.Name) + ' (' + l.FileCount + ')') + '</option>';
-                    }).join('');
-                    picker.value = libraryFilter;
-                    renderIssueFilter();
+                function anyTicked(picked) {
+                    return Object.keys(picked).length > 0;
                 }
 
-                // Each issue the files have, with how many have it. Hidden while no file has any.
-                function renderIssueFilter() {
-                    var counts = {};
-                    var any = 0;
+                function hasSubtitles(f) { return f.SubtitleTracks > 0; }
+
+                function hasExtraLanguages(f) { return (f.AudioLanguages || []).length > 1; }
+
+                // Rough picture size, by height or by width for a widescreen film, so 1920x800 still counts as 1080p.
+                var resolutionBands = ['4K', '1440p', '1080p', '720p', 'SD', 'Unknown'];
+                var alwaysBands = ['4K', '1080p', '720p', 'SD'];
+
+                function resolutionBand(f) {
+                    var rank = resolutionRank(f);
+                    if (!rank) { return 'Unknown'; }
+                    if (rank >= 1800) { return '4K'; }
+                    if (rank >= 1300) { return '1440p'; }
+                    if (rank >= 900) { return '1080p'; }
+                    if (rank >= 600) { return '720p'; }
+                    return 'SD';
+                }
+
+                function optionHtml(type, name, value, label, count, checked) {
+                    return '<label class="dm-opt' + (count ? '' : ' dm-none') + '"><input type="' + type + '" name="' + name + '" value="' + escapeHtml(value) + '"' + (checked ? ' checked' : '') + ' />'
+                        + escapeHtml(label) + '<small>' + count + '</small></label>';
+                }
+
+                // Ticks for choices that are no longer offered are dropped, so a filter can't hide everything unseen.
+                function keepOffered(picked, offered) {
+                    Object.keys(picked).forEach(function (key) { if (offered.indexOf(key) < 0) { delete picked[key]; } });
+                }
+
+                // The Filters panel: every library, resolution, track and issue the scan found, with how many files have each.
+                function renderFilters() {
+                    var libraries = summary.Libraries || [];
+                    if (libraryFilter && !libraries.some(function (l) { return l.Name === libraryFilter; })) { libraryFilter = ''; }
+                    $('#dmLibraryOptions').innerHTML = [{ Name: '', Label: 'All libraries', FileCount: summary.FileCount }].concat(libraries).map(function (l) {
+                        return optionHtml('radio', 'dmLibraryPick', l.Name, l.Label || l.Name, l.FileCount, l.Name === libraryFilter);
+                    }).join('');
+
+                    var bands = {};
+                    var tracks = { subtitles: 0, languages: 0 };
+                    var issues = {};
                     summary.Files.forEach(function (f) {
-                        if ((f.Issues || []).length) { any++; }
-                        (f.Issues || []).forEach(function (code) { counts[code] = (counts[code] || 0) + 1; });
+                        var band = resolutionBand(f);
+                        bands[band] = (bands[band] || 0) + 1;
+                        if (hasSubtitles(f)) { tracks.subtitles++; }
+                        if (hasExtraLanguages(f)) { tracks.languages++; }
+                        (f.Issues || []).forEach(function (code) { issues[code] = (issues[code] || 0) + 1; });
                     });
-                    if (issueFilter && issueFilter !== 'any' && !counts[issueFilter]) { issueFilter = ''; }
-                    if (!any) { issueFilter = ''; }
-                    var picker = $('#dmIssue');
-                    picker.classList.toggle('dm-hidden', !any);
-                    var codes = issueOrder.filter(function (c) { return counts[c]; }).concat(Object.keys(counts).filter(function (c) { return issueOrder.indexOf(c) < 0; }));
-                    picker.innerHTML = '<option value="">All files</option><option value="any">' + escapeHtml('Any issue (' + any + ')') + '</option>'
-                        + codes.map(function (c) { return '<option value="' + escapeHtml(c) + '">' + escapeHtml(issueLabel(c) + ' (' + counts[c] + ')') + '</option>'; }).join('');
-                    picker.value = issueFilter;
+                    var shownBands = resolutionBands.filter(function (b) { return bands[b] || alwaysBands.indexOf(b) >= 0; });
+                    keepOffered(resolutionFilter, shownBands);
+                    $('#dmResOptions').innerHTML = shownBands.map(function (b) { return optionHtml('checkbox', 'dmResPick', b, b, bands[b] || 0, resolutionFilter[b]); }).join('');
+                    $('#dmTrackOptions').innerHTML = optionHtml('checkbox', 'dmTrackPick', 'subtitles', 'Has subtitles', tracks.subtitles, trackFilter.subtitles)
+                        + optionHtml('checkbox', 'dmTrackPick', 'languages', 'Has extra audio languages', tracks.languages, trackFilter.languages);
+
+                    var codes = issueOrder.filter(function (c) { return issues[c]; }).concat(Object.keys(issues).filter(function (c) { return issueOrder.indexOf(c) < 0; }));
+                    keepOffered(issueFilter, codes);
+                    $('#dmIssueSection').classList.toggle('dm-hidden', !codes.length);
+                    $('#dmIssueOptions').innerHTML = codes.map(function (c) { return optionHtml('checkbox', 'dmIssuePick', c, issueLabel(c), issues[c], issueFilter[c]); }).join('');
+                }
+
+                // Every filter that's on, each as a chip that takes it off again.
+                function activeFilters() {
+                    var chips = [];
+                    if (libraryFilter) {
+                        var library = (summary.Libraries || []).filter(function (l) { return l.Name === libraryFilter; })[0];
+                        chips.push({ key: 'library', label: 'Library', value: library ? library.Label || library.Name : libraryFilter });
+                    }
+                    if (showMode() === 'suggested') { chips.push({ key: 'show', label: 'Suggested' }); }
+                    if (watchedDays()) { chips.push({ key: 'show', label: 'Not watched', value: $('#dmWatched').selectedOptions[0].textContent }); }
+                    resolutionBands.forEach(function (b) { if (resolutionFilter[b]) { chips.push({ key: 'res:' + b, label: 'Resolution', value: b }); } });
+                    if (trackFilter.subtitles) { chips.push({ key: 'track:subtitles', label: 'Has subtitles' }); }
+                    if (trackFilter.languages) { chips.push({ key: 'track:languages', label: 'Has extra audio languages' }); }
+                    Object.keys(issueFilter).forEach(function (c) { chips.push({ key: 'issue:' + c, label: issueLabel(c) }); });
+                    return chips;
+                }
+
+                function renderFilterChips() {
+                    var chips = activeFilters();
+                    var shown = visibleFiles().length;
+                    var count = $('#dmFilterCount');
+                    count.textContent = chips.length;
+                    count.classList.toggle('dm-hidden', !chips.length);
+                    $('#dmFiltersButton').classList.toggle('dm-on', chips.length > 0);
+                    $('#dmFiltersButton').setAttribute('aria-label', chips.length ? 'Filters, ' + chips.length + ' on' : 'Filters');
+                    $('#dmFiltersDone').textContent = 'Show ' + plural(shown, 'file');
+                    var row = $('#dmFilterChips');
+                    row.classList.toggle('dm-hidden', !chips.length && !filterText());
+                    row.innerHTML = chips.map(function (c) {
+                        var name = c.label + (c.value ? ' ' + c.value : '');
+                        return '<button type="button" class="dm-filter-chip" data-filter="' + escapeHtml(c.key) + '" aria-label="' + escapeHtml('Remove filter: ' + name) + '">'
+                            + escapeHtml(c.label) + (c.value ? ' <b>' + escapeHtml(c.value) + '</b>' : '')
+                            + '<svg class="dm-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+                    }).join('')
+                        + (chips.length ? '<button type="button" class="dm-text-button dm-clear-filters">Clear all</button>' : '')
+                        + '<span class="dm-shown-count">Showing ' + shown + ' of ' + plural(summary.Files.length, 'file') + '</span>';
+                }
+
+                function renderSortControls() {
+                    $('#dmSortLabel').textContent = 'Sort: ' + sortNames[sortBy];
+                    page.querySelectorAll('input[name="dmSortBy"]').forEach(function (input) { input.checked = input.value === sortBy; });
+                    var orders = sortOrders[sortBy] || ['Largest first', 'Smallest first'];
+                    $('#dmOrderNatural').textContent = orders[0];
+                    $('#dmOrderReversed').textContent = orders[1];
+                    page.querySelector('input[name="dmSortDir"][value="' + (sortReverse ? 'reversed' : 'natural') + '"]').checked = true;
+                    $('#dmGroupCodec').checked = groupByCodec;
+                    page.querySelectorAll('.dm-sort').forEach(function (head) {
+                        var on = head.dataset.sort === sortBy;
+                        head.classList.toggle('dm-on', on);
+                        head.classList.toggle('dm-rev', on && sortReverse);
+                        head.setAttribute('aria-pressed', on);
+                    });
                 }
 
                 // How the list is ordered: by what each row shows, so a series sorts by its totals.
                 function entryOrder(sort) {
                     var bySize = function (a, b) { return b.size - a.size; };
-                    if (sort === 'size') { return bySize; }
-                    if (sort === 'saving') { return function (a, b) { return b.saving - a.saving || bySize(a, b); }; }
-                    if (sort === 'bitrate') { return function (a, b) { return b.bitrate - a.bitrate || bySize(a, b); }; }
-                    if (sort === 'resolution') { return function (a, b) { return b.resolution - a.resolution || bySize(a, b); }; }
-                    if (sort === 'name') { return function (a, b) { return collator.compare(a.name, b.name); }; }
-                    if (sort === 'watched') { return function (a, b) { return a.played - b.played || bySize(a, b); }; }
-                    return function (a, b) { return collator.compare(a.codec, b.codec) || bySize(a, b); };
+                    var order = bySize;
+                    if (sort === 'saving') { order = function (a, b) { return b.saving - a.saving || bySize(a, b); }; }
+                    else if (sort === 'bitrate') { order = function (a, b) { return b.bitrate - a.bitrate || bySize(a, b); }; }
+                    else if (sort === 'resolution') { order = function (a, b) { return b.resolution - a.resolution || bySize(a, b); }; }
+                    else if (sort === 'name') { order = function (a, b) { return collator.compare(a.name, b.name); }; }
+                    else if (sort === 'watched') { order = function (a, b) { return a.played - b.played || bySize(a, b); }; }
+                    return arrange(order, function (entry) { return entry.codec; });
                 }
 
                 // The list is drawn a stretch at a time, as the page scrolls near the end of it. A big library has
@@ -2092,12 +2274,10 @@
                     visibleCache = null;
                     mainIdsCache = null;
                     if (mediaObserver) { mediaObserver.disconnect(); }
-                    var sort = $('#dmSort').value;
-                    page.querySelectorAll('.dm-sort').forEach(function (head) {
-                        head.classList.toggle('dm-on', head.dataset.sort === sort);
-                        head.setAttribute('aria-pressed', head.dataset.sort === sort);
-                    });
+                    var sort = sortBy;
+                    renderSortControls();
                     var files = visibleFiles();
+                    renderFilterChips();
                     if (!summary.Files.length) {
                         $('#dmMedia').innerHTML = '<p class="dm-empty-list">No video files found. Check that Jellyfin has finished scanning your libraries, then scan again.</p>';
                         updateSelection();
@@ -2123,7 +2303,7 @@
                         var groupKey = versions.map(function (v) { return v.ItemId; }).sort().join('-');
                         if (shown[groupKey]) { return; }
                         // Grouped by codec, a title goes under its main version's codec.
-                        if (sort === 'type' && f !== versions[0] && listed.has(versions[0])) { return; }
+                        if (groupByCodec && f !== versions[0] && listed.has(versions[0])) { return; }
                         shown[groupKey] = true;
                         var main = versions[0];
                         var title = { main: main, versions: versions, groupKey: groupKey };
@@ -2133,7 +2313,7 @@
                             return;
                         }
                         // Grouped by codec, a series is split by codec too, so each part sits under its codec.
-                        var key = 'series-' + (main.SeriesId || main.SeriesName) + (sort === 'type' ? '-' + codec : '');
+                        var key = 'series-' + (main.SeriesId || main.SeriesName) + (groupByCodec ? '-' + codec : '');
                         var show = series[key];
                         if (!show) {
                             show = series[key] = { key: key, name: main.SeriesName, label: main.SeriesName, library: main.Library, codec: codec, seriesId: main.SeriesId, seasons: [], titles: [] };
@@ -2187,7 +2367,7 @@
                         }
                     }
                     entries.forEach(function (entry) {
-                        if (sort === 'type' && entry.codec !== group) {
+                        if (groupByCodec && entry.codec !== group) {
                             group = entry.codec;
                             var members = files.filter(function (x) { return codecLabel(x.VideoCodec) === group; });
                             var size = members.reduce(function (sum, x) { return sum + x.SizeBytes; }, 0);
@@ -2286,7 +2466,7 @@
                     Object.keys(selected).forEach(function (id) { if (!filesById[id]) { delete selected[id]; } });
 
                     updateShowControls();
-                    renderLibraryFilter();
+                    renderFilters();
                     renderStorage();
                     renderMedia(true);
                     renderJobs(lastJobs);
@@ -5233,22 +5413,9 @@
                             renderLabels();
                             updateTools();
                         },
-                        // What's happening, or what went wrong, with a Try again button when there's something to retry.
-                        busy: function (text, onRetry) {
-                            var box = q('.dm-busy');
-                            box.textContent = '';
-                            var line = document.createElement('span');
-                            line.textContent = text;
-                            box.appendChild(line);
-                            if (onRetry) {
-                                var again = document.createElement('button');
-                                again.type = 'button';
-                                again.className = 'dm-button';
-                                again.textContent = 'Try again';
-                                again.addEventListener('click', onRetry);
-                                box.appendChild(again);
-                            }
-                            box.classList.remove('dm-hidden');
+                        busy: function (text) {
+                            q('.dm-busy').textContent = text;
+                            q('.dm-busy').classList.remove('dm-hidden');
                         },
                         // Shows a still comparison. A new frame starts on its softest area; the same frame keeps the view.
                         show: function (result) {
@@ -5399,7 +5566,6 @@
                     picker.classList.toggle('dm-hidden', sorted.length < 2);
                     $('#dmPreviewName').textContent = sorted.length < 2 ? titleOf(sorted[0]) + ', ' + versionLabel(sorted[0]) : '';
                     $('#dmPreviewName').classList.toggle('dm-hidden', sorted.length > 1);
-                    forgetPreviewFailures();
                     if (preview.file !== sorted[0].ItemId || !preview.frames.length) {
                         loadFilmstrip(sorted[0].ItemId);
                     } else {
@@ -5514,7 +5680,7 @@
 
                 function showPreview(result) {
                     if (result.error) {
-                        previewViewer.busy(result.error, retryPreview);
+                        previewViewer.busy(result.error);
                         clearScores($('#dmMetrics'), $('#dmPreviewScores'));
                         return;
                     }
@@ -5523,22 +5689,6 @@
                     // Such as a GPU that can't encode 10-bit, so the preview was made the way the encode will be.
                     $('#dmPreviewNote').textContent = result.Note || '';
                     $('#dmPreviewNote').classList.toggle('dm-hidden', !result.Note);
-                }
-
-                // A failed preview is only kept so it isn't asked for again and again on its own. Trying again, picking the
-                // frame again or opening the preview again asks ffmpeg afresh, as a timeout can be a busy moment.
-                function forgetPreviewFailures() {
-                    Object.keys(preview.results).forEach(function (key) {
-                        if (preview.results[key] && preview.results[key].error) {
-                            delete preview.results[key];
-                            if (preview.shown === key) { preview.shown = null; }
-                        }
-                    });
-                }
-
-                function retryPreview() {
-                    forgetPreviewFailures();
-                    requestPreview();
                 }
 
                 function runPreview(key) {
@@ -6028,7 +6178,6 @@
                     var frame = e.target.closest('.dm-frame[data-position]');
                     if (frame) {
                         preview.position = Number(frame.dataset.position);
-                        forgetPreviewFailures();
                         requestPreview();
                         return;
                     }
@@ -6092,6 +6241,7 @@
                         return;
                     }
                     if (e.key !== 'Escape') { return; }
+                    if (openPop) { setPop(null, true); return; }
                     if (!$('#dmConfirmDialog').classList.contains('dm-hidden')) { closeConfirm(); return; }
                     if ($('#dmEncodeDialog').classList.contains('dm-rail-open') && !$('#dmDialog').classList.contains('dm-hidden')) { $('#dmEncodeDialog').classList.remove('dm-rail-open'); return; }
                     if (!$('#dmCompareDialog').classList.contains('dm-hidden')) { closeCompare(); } else if (!$('#dmSmallerDialog').classList.contains('dm-hidden')) { closeSmaller(); } else if (!$('#dmRemuxDialog').classList.contains('dm-hidden')) { closeRemux(); } else if (!$('#dmDialog').classList.contains('dm-hidden')) { closeDialog(); }
@@ -6145,25 +6295,153 @@
                     if (!jobsPhone) { storeOpen('dataManager.cleanupOpen', open); }
                 });
 
-                try { $('#dmSort').value = localStorage.getItem('dataManager.sort') || 'saving'; } catch (e) { /* storage unavailable */ }
-                if (!$('#dmSort').value) { $('#dmSort').value = 'saving'; }
+                // The sort is remembered in this browser. The old "Group by codec" sort becomes the switch, by size.
+                try {
+                    var savedSort = localStorage.getItem('dataManager.sort') || 'saving';
+                    groupByCodec = savedSort === 'type' || localStorage.getItem('dataManager.groupCodec') === 'true';
+                    if (savedSort === 'type') { savedSort = 'size'; }
+                    sortBy = sortNames[savedSort] ? savedSort : 'saving';
+                    sortReverse = localStorage.getItem('dataManager.sortReverse') === 'true';
+                } catch (e) { /* storage unavailable */ }
+                renderSortControls();
+
+                function setSort(by, reverse, group) {
+                    sortBy = by;
+                    sortReverse = reverse;
+                    groupByCodec = group;
+                    try {
+                        localStorage.setItem('dataManager.sort', by);
+                        localStorage.setItem('dataManager.sortReverse', reverse);
+                        localStorage.setItem('dataManager.groupCodec', group);
+                    } catch (e) { /* storage unavailable */ }
+                    renderSortControls();
+                    if (summary && summary.GeneratedAt) { renderMedia(); }
+                }
+
+                // A column heading sorts by it, and a second click turns the order round.
                 page.querySelectorAll('.dm-sort').forEach(function (head) {
                     head.addEventListener('click', function () {
-                        $('#dmSort').value = head.dataset.sort;
-                        $('#dmSort').dispatchEvent(new Event('change'));
+                        setSort(head.dataset.sort, head.dataset.sort === sortBy ? !sortReverse : false, groupByCodec);
                     });
                 });
-                $('#dmLibrary').addEventListener('change', function () {
-                    libraryFilter = this.value;
-                    renderMedia();
+                $('#dmSortPanel').addEventListener('change', function (e) {
+                    var target = e.target;
+                    if (target.name === 'dmSortBy') { setSort(target.value, false, groupByCodec); }
+                    else if (target.name === 'dmSortDir') { setSort(sortBy, target.value === 'reversed', groupByCodec); }
+                    else if (target.id === 'dmGroupCodec') { setSort(sortBy, sortReverse, target.checked); }
                 });
-                $('#dmIssue').addEventListener('change', function () {
-                    issueFilter = this.value;
-                    renderMedia();
-                });
-                $('#dmSort').addEventListener('change', function () {
-                    try { localStorage.setItem('dataManager.sort', $('#dmSort').value); } catch (e) { /* storage unavailable */ }
+
+                function tick(picked, key, on) {
+                    if (on) { picked[key] = true; } else { delete picked[key]; }
+                }
+
+                // Show and its period have their own handlers, which also remember them.
+                $('#dmFiltersPanel').addEventListener('change', function (e) {
+                    var target = e.target;
+                    if (target.name === 'dmLibraryPick') { libraryFilter = target.value; }
+                    else if (target.name === 'dmResPick') { tick(resolutionFilter, target.value, target.checked); }
+                    else if (target.name === 'dmTrackPick') { tick(trackFilter, target.value, target.checked); }
+                    else if (target.name === 'dmIssuePick') { tick(issueFilter, target.value, target.checked); }
+                    else { return; }
                     if (summary && summary.GeneratedAt) { renderMedia(); }
+                });
+
+                function setShowMode(mode) {
+                    page.querySelector('input[name="dmShow"][value="' + mode + '"]').checked = true;
+                    try { localStorage.setItem('dataManager.show', mode); } catch (e) { /* storage unavailable */ }
+                    updateShowControls();
+                    renderSavingsLine();
+                }
+
+                function removeFilter(key) {
+                    var at = key.indexOf(':');
+                    var kind = at < 0 ? key : key.slice(0, at);
+                    var value = key.slice(at + 1);
+                    if (kind === 'library') { libraryFilter = ''; }
+                    else if (kind === 'show') { setShowMode('all'); }
+                    else if (kind === 'res') { delete resolutionFilter[value]; }
+                    else if (kind === 'track') { delete trackFilter[value]; }
+                    else if (kind === 'issue') { delete issueFilter[value]; }
+                }
+
+                function clearFilters() {
+                    libraryFilter = '';
+                    resolutionFilter = {};
+                    trackFilter = {};
+                    issueFilter = {};
+                    if (showMode() !== 'all') { setShowMode('all'); }
+                }
+
+                function filtersChanged() {
+                    if (!summary || !summary.GeneratedAt) { return; }
+                    renderFilters();
+                    renderMedia();
+                }
+
+                $('#dmFilterChips').addEventListener('click', function (e) {
+                    var chip = e.target.closest('.dm-filter-chip');
+                    if (chip) { removeFilter(chip.dataset.filter); }
+                    else if (e.target.closest('.dm-clear-filters')) { clearFilters(); }
+                    else { return; }
+                    filtersChanged();
+                    var next = $('#dmFilterChips').querySelector('.dm-filter-chip');
+                    (next || $('#dmFiltersButton')).focus();
+                });
+                $('#dmFiltersClear').addEventListener('click', function () {
+                    clearFilters();
+                    filtersChanged();
+                });
+
+                // The Filters and Sort panels drop down from their buttons, or rise as a sheet on a phone.
+                var openPop = null;
+                var pops = { filters: ['#dmFiltersButton', '#dmFiltersPanel'], sort: ['#dmSortButton', '#dmSortPanel'] };
+
+                function setPop(name, refocus) {
+                    var was = openPop;
+                    openPop = name;
+                    Object.keys(pops).forEach(function (key) {
+                        $(pops[key][0]).setAttribute('aria-expanded', key === name);
+                        $(pops[key][1]).classList.toggle('dm-hidden', key !== name);
+                    });
+                    $('#dmPopScrim').classList.toggle('dm-hidden', !name);
+                    placePop();
+                    if (name) {
+                        var first = $(pops[name][1]).querySelector('input:checked, input, button');
+                        if (first) { first.focus({ preventScroll: true }); }
+                    } else if (was && refocus) {
+                        $(pops[was][0]).focus();
+                    }
+                }
+
+                // On a wider screen the panel sits under its button, or over it when there's more room above, and follows it as
+                // the page scrolls. The list's card clips what overflows it, so the panel can't simply hang off the button.
+                function placePop() {
+                    if (!openPop) { return; }
+                    var panel = $(pops[openPop][1]);
+                    ['top', 'bottom', 'right', 'maxHeight'].forEach(function (key) { panel.style[key] = ''; });
+                    if (window.matchMedia('(max-width: 760px)').matches) { return; }
+                    var at = $(pops[openPop][0]).getBoundingClientRect();
+                    var high = window.innerHeight;
+                    if (at.bottom < 0 || at.top > high) { setPop(null); return; }
+                    var below = high - at.bottom - 18;
+                    var above = at.top - 18;
+                    if (below < 360 && above > below) {
+                        panel.style.bottom = (high - at.top + 6) + 'px';
+                        panel.style.maxHeight = Math.min(above, 660) + 'px';
+                    } else {
+                        panel.style.top = (at.bottom + 6) + 'px';
+                        panel.style.maxHeight = Math.min(Math.max(below, 200), 660) + 'px';
+                    }
+                    panel.style.right = Math.max(document.documentElement.clientWidth - at.right, 8) + 'px';
+                }
+
+                window.addEventListener('scroll', placePop, true);
+                window.addEventListener('resize', placePop);
+                $('#dmFiltersButton').addEventListener('click', function () { setPop(openPop === 'filters' ? null : 'filters'); });
+                $('#dmSortButton').addEventListener('click', function () { setPop(openPop === 'sort' ? null : 'sort'); });
+                $('#dmFiltersDone').addEventListener('click', function () { setPop(null, true); });
+                document.addEventListener('pointerdown', function (e) {
+                    if (openPop && !e.target.closest('.dm-pop-wrap')) { setPop(null); }
                 });
                 // Typing waits for a pause, so each letter doesn't redraw the list.
                 $('#dmFilter').addEventListener('input', function () {
