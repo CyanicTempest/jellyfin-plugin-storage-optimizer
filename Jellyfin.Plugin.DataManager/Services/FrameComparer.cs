@@ -44,8 +44,10 @@ public sealed partial class FrameComparer : IDisposable
     private const int MatchWidth = 128;
     private const int MatchHeight = 72;
 
-    private static readonly TimeSpan _timeout = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan _clipTimeout = TimeSpan.FromMinutes(4);
+    // ffmpeg is stopped once it has done nothing for this long, or at the limit, however it's getting on.
+    private static readonly TimeSpan _stall = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan _timeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan _clipTimeout = TimeSpan.FromMinutes(20);
 
     private readonly ILibraryManager _libraryManager;
     private readonly IMediaEncoder _mediaEncoder;
@@ -226,7 +228,7 @@ public sealed partial class FrameComparer : IDisposable
     public void Dispose() => _gate.Dispose();
 
     private async Task RunClipAsync(IList<string> args, CancellationToken cancellationToken)
-        => await FfmpegRunner.RunAsync(_mediaEncoder.EncoderPath, args, _clipTimeout, "make the clip", cancellationToken).ConfigureAwait(false);
+        => await FfmpegRunner.RunWatchedAsync(_mediaEncoder.EncoderPath, args, _stall, _clipTimeout, "make the clip", cancellationToken).ConfigureAwait(false);
 
     private static List<string> ClipArguments(string originalPath, double positionSeconds, string encodedPath, int frames, int width, int height, bool toneMap, string outputPath)
     {
@@ -511,7 +513,7 @@ public sealed partial class FrameComparer : IDisposable
     }
 
     private async Task<string> RunFfmpegAsync(IList<string> args, CancellationToken cancellationToken)
-        => (await FfmpegRunner.RunAsync(_mediaEncoder.EncoderPath, args, _timeout, "take the frames", cancellationToken).ConfigureAwait(false)).Errors;
+        => (await FfmpegRunner.RunWatchedAsync(_mediaEncoder.EncoderPath, args, _stall, _timeout, "take the frames", cancellationToken).ConfigureAwait(false)).Errors;
 
     private void RemoveFolder(string folder)
     {

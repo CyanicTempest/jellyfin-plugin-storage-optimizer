@@ -445,7 +445,7 @@
             #DataManagerDashboardPage .dm-label-second { right: 12px; }
             #DataManagerDashboardPage .dm-viewer:not([data-view="swipe"]) :is(.dm-divider, .dm-label-second) { display: none; }
             #DataManagerDashboardPage .dm-viewer[data-view="map"] .dm-label { display: none; }
-            #DataManagerDashboardPage .dm-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1em; text-align: center; background: rgba(0, 0, 0, 0.55); color: #fff; line-height: 1.4; }
+            #DataManagerDashboardPage .dm-busy { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; padding: 1em; text-align: center; background: rgba(0, 0, 0, 0.55); color: #fff; line-height: 1.4; }
             #DataManagerDashboardPage .dm-clip-video { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
             #DataManagerDashboardPage .dm-viewer-tools { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; font-size: 13px; }
             #DataManagerDashboardPage .dm-viewer-tools .dm-dropdown { width: auto; }
@@ -5233,9 +5233,22 @@
                             renderLabels();
                             updateTools();
                         },
-                        busy: function (text) {
-                            q('.dm-busy').textContent = text;
-                            q('.dm-busy').classList.remove('dm-hidden');
+                        // What's happening, or what went wrong, with a Try again button when there's something to retry.
+                        busy: function (text, onRetry) {
+                            var box = q('.dm-busy');
+                            box.textContent = '';
+                            var line = document.createElement('span');
+                            line.textContent = text;
+                            box.appendChild(line);
+                            if (onRetry) {
+                                var again = document.createElement('button');
+                                again.type = 'button';
+                                again.className = 'dm-button';
+                                again.textContent = 'Try again';
+                                again.addEventListener('click', onRetry);
+                                box.appendChild(again);
+                            }
+                            box.classList.remove('dm-hidden');
                         },
                         // Shows a still comparison. A new frame starts on its softest area; the same frame keeps the view.
                         show: function (result) {
@@ -5386,6 +5399,7 @@
                     picker.classList.toggle('dm-hidden', sorted.length < 2);
                     $('#dmPreviewName').textContent = sorted.length < 2 ? titleOf(sorted[0]) + ', ' + versionLabel(sorted[0]) : '';
                     $('#dmPreviewName').classList.toggle('dm-hidden', sorted.length > 1);
+                    forgetPreviewFailures();
                     if (preview.file !== sorted[0].ItemId || !preview.frames.length) {
                         loadFilmstrip(sorted[0].ItemId);
                     } else {
@@ -5500,7 +5514,7 @@
 
                 function showPreview(result) {
                     if (result.error) {
-                        previewViewer.busy(result.error);
+                        previewViewer.busy(result.error, retryPreview);
                         clearScores($('#dmMetrics'), $('#dmPreviewScores'));
                         return;
                     }
@@ -5509,6 +5523,22 @@
                     // Such as a GPU that can't encode 10-bit, so the preview was made the way the encode will be.
                     $('#dmPreviewNote').textContent = result.Note || '';
                     $('#dmPreviewNote').classList.toggle('dm-hidden', !result.Note);
+                }
+
+                // A failed preview is only kept so it isn't asked for again and again on its own. Trying again, picking the
+                // frame again or opening the preview again asks ffmpeg afresh, as a timeout can be a busy moment.
+                function forgetPreviewFailures() {
+                    Object.keys(preview.results).forEach(function (key) {
+                        if (preview.results[key] && preview.results[key].error) {
+                            delete preview.results[key];
+                            if (preview.shown === key) { preview.shown = null; }
+                        }
+                    });
+                }
+
+                function retryPreview() {
+                    forgetPreviewFailures();
+                    requestPreview();
                 }
 
                 function runPreview(key) {
@@ -5998,6 +6028,7 @@
                     var frame = e.target.closest('.dm-frame[data-position]');
                     if (frame) {
                         preview.position = Number(frame.dataset.position);
+                        forgetPreviewFailures();
                         requestPreview();
                         return;
                     }

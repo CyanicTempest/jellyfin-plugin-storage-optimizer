@@ -43,8 +43,11 @@ public sealed class EncodeService : IDisposable
     private const double MinimumSaving = 0.05;
 
     // A preview is about a second of video; slow CPUs take a while over a second of 4K, more so at the slowest effort.
-    private static readonly TimeSpan _previewTimeout = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan _clipTimeout = TimeSpan.FromMinutes(12);
+    // So ffmpeg is left to work for as long as it gets on, and only stopped when it has done nothing for a minute
+    // (stuck on a GPU, say), or after the limit, which a working encode shouldn't get near.
+    private static readonly TimeSpan _previewStall = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan _previewLimit = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan _clipLimit = TimeSpan.FromMinutes(60);
 
     // How long a working file has to sit untouched before it counts as left behind.
     private static readonly TimeSpan _unfinishedFileAge = TimeSpan.FromHours(1);
@@ -761,26 +764,27 @@ public sealed class EncodeService : IDisposable
             var output = Path.Combine(folder, "preview.mkv");
             var (variants, device, style) = await PreviewVariantsAsync(plan.Encoder, request, plan.Source, cancellationToken).ConfigureAwait(false);
             var used = await _speedEstimator.ExclusiveAsync(
-                () => RunVariantsAsync(
+                () => RunPreviewEncodeAsync(
+                    plan,
+                    request,
                     variants,
-                    variant => _hardware.RunAsync(
-                        variant.Encoder,
-                        plan.Source,
-                        hw => FfmpegRunner.RunAsync(
-                            _mediaEncoder.EncoderPath,
-                            FfmpegArguments.BuildPreview(plan.Item.Path, output, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hw.Arguments, request.Hdr == HdrChoice.ToneMapToSdr, variant, style),
-                            _previewTimeout,
-                            "encode the preview",
-                            cancellationToken),
-                        null,
+                    device,
+                    (variant, hardware) => FfmpegRunner.RunWatchedAsync(
+                        _mediaEncoder.EncoderPath,
+                        FfmpegArguments.BuildPreview(plan.Item.Path, output, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hardware, request.Hdr == HdrChoice.ToneMapToSdr, variant, style),
+                        _previewStall,
+                        _previewLimit,
+                        "encode the preview",
                         cancellationToken),
-                    null,
                     cancellationToken),
                 cancellationToken).ConfigureAwait(false);
-            RememberFallback(variants[0], used, device);
             var comparison = await _frameComparer.ComparePreviewAsync(plan.Item, plan.Position, output, frames / 2, plan.File.FramesPerSecond, plan.File.ScaleTo, cancellationToken).ConfigureAwait(false);
             comparison.Note = used.Note;
             return comparison;
+        }
+        catch (TimeoutException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw WithAdvice(ex);
         }
         finally
         {
@@ -811,27 +815,28 @@ public sealed class EncodeService : IDisposable
                 async () =>
                 {
                     var (variants, device, style) = await PreviewVariantsAsync(plan.Encoder, request, plan.Source, cancellationToken).ConfigureAwait(false);
-                    var used = await RunVariantsAsync(
+                    await RunPreviewEncodeAsync(
+                        plan,
+                        request,
                         variants,
-                        variant => _hardware.RunAsync(
-                            variant.Encoder,
-                            plan.Source,
-                            hw => FfmpegRunner.RunAsync(
-                                _mediaEncoder.EncoderPath,
-                                FfmpegArguments.BuildPreview(plan.Item.Path, encoded, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hw.Arguments, request.Hdr == HdrChoice.ToneMapToSdr, variant, style),
-                                _clipTimeout,
-                                "encode the clip",
-                                cancellationToken),
-                            null,
+                        device,
+                        (variant, hardware) => FfmpegRunner.RunWatchedAsync(
+                            _mediaEncoder.EncoderPath,
+                            FfmpegArguments.BuildPreview(plan.Item.Path, encoded, plan.Position, frames, plan.Encoder, request.Quality, request.Effort, plan.Source, plan.File.ScaleTo, hardware, request.Hdr == HdrChoice.ToneMapToSdr, variant, style),
+                            _previewStall,
+                            _clipLimit,
+                            "encode the clip",
                             cancellationToken),
-                        null,
                         cancellationToken).ConfigureAwait(false);
-                    RememberFallback(variants[0], used, device);
                     await _frameComparer.StackClipAsync(plan.Item, plan.Position, encoded, frames, plan.File.Output, output, cancellationToken).ConfigureAwait(false);
                     return output;
                 },
                 cancellationToken).ConfigureAwait(false);
             return output;
+        }
+        catch (TimeoutException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw WithAdvice(ex);
         }
         finally
         {
@@ -2008,6 +2013,64 @@ public sealed class EncodeService : IDisposable
         var toneMap = request.Hdr == HdrChoice.ToneMapToSdr && source.IsHdr;
         return (Variants(encoder, request.Codec, source, toneMap, config, device), device, ToneStyle(request.ToneMapStyle ?? config.DefaultToneMapStyle));
     }
+
+    // Encodes a preview or clip the way the real encode would, falling back the same way. If the GPU stops responding
+    // (ffmpeg makes no progress), it's made again on the CPU once, so there's still something to look at. That isn't
+    // remembered, as a GPU can hang once and be fine after.
+    private async Task<VideoVariant> RunPreviewEncodeAsync(PreviewPlan plan, EncodePreviewRequest request, IReadOnlyList<VideoVariant> variants, string device, Func<VideoVariant, IReadOnlyList<string>?, Task> run, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var used = await RunVariantsAsync(
+                variants,
+                variant => _hardware.RunAsync(
+                    variant.Encoder,
+                    plan.Source,
+                    async hw =>
+                    {
+                        await run(variant, hw.Arguments).ConfigureAwait(false);
+                        return true;
+                    },
+                    null,
+                    cancellationToken),
+                null,
+                cancellationToken).ConfigureAwait(false);
+            RememberFallback(variants[0], used, device);
+            return used;
+        }
+        catch (FfmpegTimeoutException ex) when (ex.Stalled && !cancellationToken.IsCancellationRequested && CpuPreviewVariant(plan, request) is { } cpu)
+        {
+            _logger.LogWarning("Storage Optimizer's preview stopped making progress on the GPU, so it is making it again on the CPU with {Encoder}: {Error}", cpu.Encoder, ex.Message);
+            await run(cpu, null).ConfigureAwait(false);
+            return cpu;
+        }
+    }
+
+    // The way to make a preview without the GPU, or null if the GPU wasn't in use or the CPU can't stand in for it.
+    private VideoVariant? CpuPreviewVariant(PreviewPlan plan, EncodePreviewRequest request)
+    {
+        var gpuEncode = !plan.Encoder.StartsWith("lib", StringComparison.Ordinal);
+        if (!gpuEncode)
+        {
+            return _hardware.Plan(plan.Encoder, plan.Source).Decoder is null
+                ? null
+                : new VideoVariant(plan.Encoder, Note: "Decoding on the GPU stopped responding, so this preview was decoded on the CPU. Re-encodes still try the GPU first.");
+        }
+
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var cpu = config.NeverEncodeOnCpu ? null : CpuEncoder(request.Codec);
+        return cpu is null
+            ? null
+            : new VideoVariant(cpu, Note: "The GPU stopped responding, so this preview was made on the CPU with " + cpu + ". Re-encodes still try the GPU first.");
+    }
+
+    // Adds what to do next to a preview or clip that took too long.
+    private static TimeoutException WithAdvice(TimeoutException ex)
+        => new(
+            ex.Message
+            + (ex is FfmpegTimeoutException { Stalled: true } ? " The GPU or the drive holding the file may have stopped responding." : string.Empty)
+            + " Try again, as the server may just have been busy with playback or other encodes. If it keeps happening, a faster Speed makes the preview quicker.",
+            ex);
 
     // Tries each way in turn, moving on when ffmpeg fails, and says which one worked.
     private async Task<VideoVariant> RunVariantsAsync<T>(IReadOnlyList<VideoVariant> variants, Func<VideoVariant, Task<T>> run, Action<VideoVariant, VideoVariant, InvalidOperationException>? onNext, CancellationToken cancellationToken)
